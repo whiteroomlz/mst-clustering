@@ -1,4 +1,5 @@
 import numpy as np
+from sklearn.datasets import make_blobs
 
 from itertools import repeat
 from multiprocessing import Manager
