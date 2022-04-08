@@ -2,8 +2,7 @@ import numpy as np
 from decimal import Decimal
 
 
-# FIXME:
-#   Матрица может иметь нулевой или отрицательный определитель, что способно сломать весь алгоритм
+# Матрица может иметь нулевой или отрицательный определитель.
 def fuzzy_covariance_matrix(data: np.ndarray, weighting_exponent: float, partition: np.ndarray,
                             cluster_center: np.ndarray) -> np.ndarray:
     covariance_matrix = np.zeros((data.shape[1], data.shape[1]))
@@ -34,7 +33,7 @@ def fuzzy_hyper_volume(data: np.ndarray, weighting_exponent: float, cluster_ids:
         return np.sqrt(det)
 
 
-def compute_distances(data: np.ndarray, weighting_exponent: float, partition: np.ndarray, cluster: int) -> np.ndarray:
+def cluster_distances(data: np.ndarray, weighting_exponent: float, partition: np.ndarray, cluster: int) -> np.ndarray:
     count_of_points = data.shape[0]
     partition_ratio = partition[cluster] ** weighting_exponent
     cluster_center = np.sum((data.T * partition_ratio).T, axis=0) / np.sum(partition_ratio)

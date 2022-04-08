@@ -1,0 +1,1 @@
+from spanning_tree_clustering.spanning_tree_clustering import SpanningTreeClustering

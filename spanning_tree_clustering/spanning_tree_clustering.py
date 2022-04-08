@@ -1,24 +1,25 @@
+import ctypes
 import numpy as np
-from sklearn.datasets import make_blobs
 
-from itertools import repeat
-from multiprocessing import Manager
-from concurrent.futures import ProcessPoolExecutor
+from decimal import Decimal
+
+from multiprocessing.sharedctypes import RawArray, RawValue
+from concurrent.futures import ProcessPoolExecutor, wait, ALL_COMPLETED
 
 from scipy.spatial import KDTree, distance_matrix as distances
 from sklearn.preprocessing import normalize
 from scipy.special import softmax
-from decimal import Decimal
 
-from cpp_utils import SpanningForest, Edge, DSU
-from clustering_utils import fuzzy_hyper_volume, fuzzy_covariance_matrix, compute_distances
+from cpp_utils.py_dsu import DSU
+from cpp_utils.py_spanning_forest import SpanningForest, Edge
+from clustering_utils import fuzzy_hyper_volume, cluster_distances
 
 np.warnings.filterwarnings('ignore', category=np.VisibleDeprecationWarning)
 
 
 # TODO: Требует тестирования и оптимизации кода как на c++, так и на Python.
 class SpanningTreeClustering(object):
-    num_of_workers: int
+    workers: int
     num_of_clusters: int
     cutting_condition: float
     exp: float
@@ -29,8 +30,8 @@ class SpanningTreeClustering(object):
     __partition_matrix: np.ndarray
     __noise: set
 
-    def __init__(self, num_of_workers=-1):
-        self.num_of_workers = num_of_workers
+    def __init__(self, num_of_workers=1):
+        self.workers = num_of_workers
 
     def clustering(self, data, num_of_clusters, cutting_condition, weighting_exponent, termination_tolerance,
                    mst_algorithm="Prim", clustering_mode="hybrid"):
@@ -129,18 +130,19 @@ class SpanningTreeClustering(object):
         return cluster_ids, cluster_edges, cluster_center
 
     def __get_distance_matrix(self):
-        count_of_clusters = self.__partition_matrix.shape[0]
+        shared_data_ = RawArray(ctypes.c_double, self.__data.flatten())
+        shared_rows_count_ = RawValue(ctypes.c_int32, self.__data.shape[0])
+        shared_weighting_exponent_ = RawValue(ctypes.c_double, self.exp)
+        shared_partition_matrix_ = RawArray(ctypes.c_double, self.__partition_matrix.flatten())
+        shared_clusters_count_ = RawValue(ctypes.c_int32, self.__partition_matrix.shape[0])
+        pool_args = (shared_data_, shared_rows_count_, shared_weighting_exponent_, shared_partition_matrix_,
+                     shared_clusters_count_)
 
-        manager = Manager()
-        ns = manager.Namespace()
-        ns.data = self.__data
-        ns.weighting_exponent = self.exp
-        ns.partition = self.__partition_matrix
-
-        with ProcessPoolExecutor(max_workers=self.num_of_workers) as executor:
+        with ProcessPoolExecutor(max_workers=self.workers, initializer=pool_init, initargs=pool_args) as executor:
             distance_matrix = np.vstack(list(
-                executor.map(parallel_compute_distances, repeat(ns), np.arange(count_of_clusters))
+                executor.map(parallel_compute_distances, range(self.__partition_matrix.shape[0]))
             ))
+
         return distance_matrix
 
     def __get_first_criterion(self) -> float:
@@ -158,70 +160,68 @@ class SpanningTreeClustering(object):
 
     def __simple_clustering(self):
         first_criterion = self.__get_first_criterion()
-
         noise_delegates = set()
 
-        manager = Manager()
-        ns = manager.Namespace()
-        ns.data = self.__data
-        ns.weighting_exponent = self.exp
+        shared_data_ = RawArray(ctypes.c_double, self.__data.flatten())
+        shared_rows_count_ = RawValue(ctypes.c_int32, self.__data.shape[0])
+        shared_weighting_exponent_ = RawValue(ctypes.c_double, self.exp)
+        pool_args = (shared_data_, shared_rows_count_, shared_weighting_exponent_,)
 
-        while self.__spanning_forest.size() < self.num_of_clusters:
-            forest = self.__spanning_forest
+        with ProcessPoolExecutor(max_workers=self.workers, initializer=pool_init, initargs=pool_args) as executor:
+            while self.__spanning_forest.size() < self.num_of_clusters:
+                forest = self.__spanning_forest
+                params = list(map(
+                    lambda cluster_idx: self.__get_cluster_params(forest, cluster_idx), range(forest.size())
+                ))
 
-            params = map(lambda cluster_idx: self.__get_cluster_params(forest, cluster_idx), np.arange(forest.size()))
-            unzipped_params = list(zip(*params))
-            ids = np.array(unzipped_params[0])
-            centers = np.array(unzipped_params[2])
+                futures = list(executor.submit(parallel_fuzzy_hyper_volume, ids, center) for ids, _, center in params)
+                wait(futures, return_when=ALL_COMPLETED)
+                fuzzy_volumes = np.fromiter(map(lambda future: future.result(), futures), dtype=np.float64)
 
-            with ProcessPoolExecutor(max_workers=self.num_of_workers) as executor:
-                volumes = np.fromiter(executor.map(parallel_fuzzy_hyper_volume, repeat(ns), ids, centers),
-                                      dtype=np.float64)
+                worst_cluster = np.argmax(fuzzy_volumes)
+                cluster_edges = self.__spanning_forest.get_root_edges(worst_cluster)
+                weights = list(map(lambda edge: edge.weight, cluster_edges))
+                largest_weight_index = np.argmax(weights)
+                largest_weight = weights[largest_weight_index]
 
-            worst_cluster = np.argmax(volumes)
-            cluster_edges = self.__spanning_forest.get_root_edges(worst_cluster)
-            weights = list(map(lambda edge: edge.weight, cluster_edges))
-            largest_weight_index = np.argmax(weights)
-            largest_weight = weights[largest_weight_index]
+                if largest_weight >= first_criterion or self.__check_second_criterion(weights, largest_weight_index):
+                    bad_edge = cluster_edges[largest_weight_index]
+                else:
+                    temp_forest = SpanningForest()
+                    for cluster_edge in cluster_edges:
+                        temp_forest.add_edge(cluster_edge.parent_id, cluster_edge.child_id, cluster_edge.weight)
 
-            if largest_weight >= first_criterion or self.__check_second_criterion(weights, largest_weight_index):
-                bad_edge: Edge = cluster_edges[largest_weight_index]
-            else:
-                temp_forest = SpanningForest()
-                for cluster_edge in cluster_edges:
-                    temp_forest.add_edge(cluster_edge.parent_id, cluster_edge.child_id, cluster_edge.weight)
+                    min_total_fhv = float("inf")
+                    bad_edge_index = -1
 
-                min_total_fhv = float("inf")
-                bad_edge_index = -1
+                    for edge_index, cluster_edge in enumerate(cluster_edges):
+                        temp_forest.remove_edge(cluster_edge.parent_id, cluster_edge.child_id)
 
-                for edge_index, cluster_edge in enumerate(cluster_edges):
-                    temp_forest.remove_edge(cluster_edge.parent_id, cluster_edge.child_id)
+                        left_cluster_ids, _, cluster_center = self.__get_cluster_params(temp_forest, 0)
+                        left_fhv = fuzzy_hyper_volume(self.__data, self.exp, left_cluster_ids, cluster_center)
+                        right_cluster_ids, _, cluster_center = self.__get_cluster_params(temp_forest, 1)
+                        right_fhv = fuzzy_hyper_volume(self.__data, self.exp, right_cluster_ids, cluster_center)
 
-                    left_cluster_ids, _, cluster_center = self.__get_cluster_params(temp_forest, 0)
-                    left_fhv = fuzzy_hyper_volume(self.__data, self.exp, left_cluster_ids, cluster_center)
-                    right_cluster_ids, _, cluster_center = self.__get_cluster_params(temp_forest, 1)
-                    right_fhv = fuzzy_hyper_volume(self.__data, self.exp, right_cluster_ids, cluster_center)
-
-                    if left_fhv != -1 and right_fhv != -1:
-                        total_fhv = left_fhv + right_fhv
-                    else:
-                        if left_cluster_ids.size == 1 or right_cluster_ids.size == 1:
-                            total_fhv = float("inf")
+                        if left_fhv != -1 and right_fhv != -1:
+                            total_fhv = left_fhv + right_fhv
                         else:
-                            if left_fhv == -1:
-                                noise_delegates.add(temp_forest.get_root_id(0))
+                            if left_cluster_ids.size == 1 or right_cluster_ids.size == 1:
+                                total_fhv = float("inf")
                             else:
-                                noise_delegates.add(temp_forest.get_root_id(1))
+                                if left_fhv == -1:
+                                    noise_delegates.add(temp_forest.get_root_id(0))
+                                else:
+                                    noise_delegates.add(temp_forest.get_root_id(1))
+                                bad_edge_index = edge_index
+                                break
+
+                        temp_forest.add_edge(cluster_edge.parent_id, cluster_edge.child_id, cluster_edge.weight)
+
+                        if total_fhv <= min_total_fhv:
+                            min_total_fhv = total_fhv
                             bad_edge_index = edge_index
-                            break
-
-                    temp_forest.add_edge(cluster_edge.parent_id, cluster_edge.child_id, cluster_edge.weight)
-
-                    if total_fhv <= min_total_fhv:
-                        min_total_fhv = total_fhv
-                        bad_edge_index = edge_index
-                bad_edge: Edge = cluster_edges[bad_edge_index]
-            self.__spanning_forest.remove_edge(bad_edge.parent_id, bad_edge.child_id)
+                    bad_edge: Edge = cluster_edges[bad_edge_index]
+                self.__spanning_forest.remove_edge(bad_edge.parent_id, bad_edge.child_id)
 
         for cluster in np.arange(self.__spanning_forest.size()):
             cluster_ids, _, _ = self.__get_cluster_params(self.__spanning_forest, cluster)
@@ -245,34 +245,40 @@ class SpanningTreeClustering(object):
             for cluster in np.arange(self.num_of_clusters):
                 for point_index in np.arange(self.__partition_matrix.shape[1]):
                     distance = distance_matrix[cluster, point_index]
-
                     partition = sum(map(lambda other_cluster:
                                         (distance / distance_matrix[other_cluster, point_index]) ** power,
                                         np.arange(self.num_of_clusters)))
                     partition **= -1
-
                     self.__partition_matrix[cluster, point_index] = partition
 
 
-# FIXME:
-#   Матрица может иметь нулевой или отрицательный определитель, что способно сломать весь алгоритм
-def parallel_fuzzy_covariance_matrix(ns, partition: np.ndarray, cluster_center: np.ndarray) -> np.ndarray:
-    data = ns.data
-    weighting_exponent = ns.weighting_exponent
+def pool_init(data_, rows_count_, weighting_exponent_, partition_matrix_=None, clusters_count_=None):
+    global shared_data, shared_rows_count, shared_weighting_exponent, shared_partition_matrix, shared_clusters_count
+    shared_data = data_
+    shared_rows_count = rows_count_
+    shared_weighting_exponent = weighting_exponent_
+    shared_partition_matrix = partition_matrix_
+    shared_clusters_count = clusters_count_
 
-    return fuzzy_covariance_matrix(data, weighting_exponent, partition, cluster_center)
 
-
-def parallel_fuzzy_hyper_volume(ns, cluster_ids: np.ndarray, cluster_center: np.ndarray) -> float:
-    data = ns.data
-    weighting_exponent = ns.weighting_exponent
-
+def parallel_fuzzy_hyper_volume(cluster_ids: np.ndarray, cluster_center: np.ndarray) -> float:
+    data = np.frombuffer(shared_data).reshape((shared_rows_count.value, -1))
+    weighting_exponent = shared_weighting_exponent.value
     return fuzzy_hyper_volume(data, weighting_exponent, cluster_ids, cluster_center)
 
 
-def parallel_compute_distances(ns, cluster: int) -> np.ndarray:
-    data = ns.data
-    weighting_exponent = ns.weighting_exponent
-    partition = ns.partition
+def parallel_compute_distances(cluster: int) -> np.ndarray:
+    data = np.frombuffer(shared_data).reshape((shared_rows_count.value, -1))
+    weighting_exponent = shared_weighting_exponent.value
+    partition_matrix = np.frombuffer(shared_partition_matrix).reshape((shared_clusters_count.value, -1))
+    return cluster_distances(data, weighting_exponent, partition_matrix, cluster)
 
-    return compute_distances(data, weighting_exponent, partition, cluster)
+
+if __name__ == "__main__":
+    from sklearn.datasets import make_blobs
+
+    X, y = make_blobs(10000, 2, centers=7)
+    cls = SpanningTreeClustering(6)
+    cls.clustering(X, 7, 3, 2, 10)
+    z = cls.get_labels()
+    pass
