@@ -10,9 +10,8 @@ from scipy.spatial import KDTree, distance_matrix as distances
 from sklearn.preprocessing import normalize
 from scipy.special import softmax
 
-from cpp_utils.py_dsu import DSU
-from cpp_utils.py_spanning_forest import SpanningForest, Edge
-from clustering_utils import fuzzy_hyper_volume, cluster_distances
+from spanning_tree_clustering.cpp_utils import DSU, SpanningForest, Edge
+from spanning_tree_clustering.clustering_utils import fuzzy_hyper_volume, cluster_distances
 
 np.warnings.filterwarnings('ignore', category=np.VisibleDeprecationWarning)
 
