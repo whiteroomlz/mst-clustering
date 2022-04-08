@@ -5,8 +5,8 @@
     C:\Users\borod>pip install git+https://github.com/Whiteroomlz/Spanning-tree-clustering.git
 
 Класс `SpanningTreeClustering` использует
-модуль [multiprocessing](https://docs.python.org/3/library/multiprocessing.html), из-за чего требуется использование
-точки входа:
+модуль [multiprocessing](https://docs.python.org/3/library/multiprocessing.html), из-за чего требуется наличие точки
+входа:
 
 ```python
 import multiprocessing
