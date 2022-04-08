@@ -272,13 +272,3 @@ def parallel_compute_distances(cluster: int) -> np.ndarray:
     weighting_exponent = shared_weighting_exponent.value
     partition_matrix = np.frombuffer(shared_partition_matrix).reshape((shared_clusters_count.value, -1))
     return cluster_distances(data, weighting_exponent, partition_matrix, cluster)
-
-
-if __name__ == "__main__":
-    from sklearn.datasets import make_blobs
-
-    X, y = make_blobs(10000, 2, centers=7)
-    cls = SpanningTreeClustering(6)
-    cls.clustering(X, 7, 3, 2, 10)
-    z = cls.get_labels()
-    pass
