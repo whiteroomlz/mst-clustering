@@ -1,8 +1,17 @@
 # Spanning tree clustering
-Дополнительные *.cpp библиотеки должны быть установлены в виртуальное окружение Python.
-Для инсталляции каждой из них можно воспользоваться следующей командой:
 
-	pip install <ПОЛНЫЙ_ПУТЬ_ДО_ДИРЕКТОРИИ_БИБЛИОТЕКИ>
-	
-Под директорией библиотеки подразумевается одна из папок в cpp_source.
-	
+Для инсталляции необходимо воспользоваться командой:
+
+    C:\Users\borod>pip install git+https://github.com/Whiteroomlz/Spanning-tree-clustering.git
+
+Класс `SpanningTreeClustering` использует
+модуль [multiprocessing](https://docs.python.org/3/library/multiprocessing.html), из-за чего требуется использование
+точки входа:
+
+```python
+import multiprocessing
+
+if __name__ == "__main__":
+    multiprocessing.freeze_support()
+    ...
+```
