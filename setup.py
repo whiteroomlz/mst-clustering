@@ -16,5 +16,7 @@ setup(
         "wincertstore",
         "pybind11",
         "setuptools",
+        "dsu @ git+https://github.com/Whiteroomlz/dsu.git",
+        "spanning_forest @ git+https://github.com/Whiteroomlz/spanning_forest.git",
     ],
 )
