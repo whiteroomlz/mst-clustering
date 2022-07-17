@@ -1,6 +1,6 @@
 # Spanning tree clustering
 
-For installation use next command:
+For installation use the next command:
 
 ```bash
     pip install git+https://github.com/whiteroomlz/spanning-tree-clustering.git
