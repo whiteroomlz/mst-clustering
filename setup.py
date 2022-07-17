@@ -1,9 +1,32 @@
-from setuptools import setup
-from os.path import join, dirname
+import pybind11
+from setuptools import setup, Extension
+
+cpp_args = ['-std=c++20', '-stdlib=libc++', '-mmacosx-version-min=10.7']
+
+ext_modules = [
+    Extension(
+        'spanning_forest',
+        sources=['spanning_tree_clustering/cpp_source/spanning_forest/spanning_forest.cpp'],
+        include_dirs=[pybind11.get_include()],
+        language='c++',
+        extra_compile_args=cpp_args,
+    ),
+    Extension(
+        'dsu',
+        sources=['spanning_tree_clustering/cpp_source/dsu/dsu.cpp'],
+        include_dirs=[pybind11.get_include()],
+        language='c++',
+        extra_compile_args=cpp_args,
+    ),
+]
 
 setup(
     name="spanning_tree_clustering",
-    version='1.0',
+    version='1.1',
+    description='Implementation of fuzzy clustering algorithms based on spanning trees',
+    author='Nikita Borodin',
+    author_email='borodinik.s@gmail.com',
+    url='https://github.com/whiteroomlz/spanning-tree-clustering/',
     packages=["spanning_tree_clustering", "spanning_tree_clustering.cpp_utils"],
     install_requires=[
         "certifi",
@@ -16,7 +39,6 @@ setup(
         "wincertstore",
         "pybind11",
         "setuptools",
-        "dsu @ git+https://github.com/Whiteroomlz/dsu.git",
-        "spanning_forest @ git+https://github.com/Whiteroomlz/spanning_forest.git",
     ],
+    ext_modules=ext_modules,
 )

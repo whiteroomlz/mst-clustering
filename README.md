@@ -1,14 +1,13 @@
 # Spanning tree clustering
 
-Для инсталляции необходимо воспользоваться командой:
+For installation use next command:
 
 ```bash
-    pip install git+https://github.com/Whiteroomlz/Spanning-tree-clustering.git
+    pip install git+https://github.com/whiteroomlz/spanning-tree-clustering.git
 ```
 
-Класс `SpanningTreeClustering` использует
-модуль [multiprocessing](https://docs.python.org/3/library/multiprocessing.html), из-за чего требуется наличие точки
-входа:
+The class `SpanningTreeClustering` uses the [multiprocessing](https://docs.python.org/3/library/multiprocessing.html) 
+module, so you should create an entry point in your main script:
 
 ```python
 import multiprocessing

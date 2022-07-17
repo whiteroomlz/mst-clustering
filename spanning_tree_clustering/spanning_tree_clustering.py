@@ -57,7 +57,7 @@ class SpanningTreeClustering(object):
         if clustering_mode == "simple" or clustering_mode == "hybrid":
             self.__simple_clustering()
 
-        if clustering_mode == "Gath-Geva" or "hybrid":
+        if clustering_mode == "Gath-Geva" or clustering_mode == "hybrid":
             self.__gath_geva_algorithm()
 
     def get_labels(self):
