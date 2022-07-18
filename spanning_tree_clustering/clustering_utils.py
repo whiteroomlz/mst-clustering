@@ -2,7 +2,6 @@ import numpy as np
 from decimal import Decimal
 
 
-# Матрица может иметь нулевой или отрицательный определитель.
 def fuzzy_covariance_matrix(data: np.ndarray, weighting_exponent: float, partition: np.ndarray,
                             cluster_center: np.ndarray) -> np.ndarray:
     covariance_matrix = np.zeros((data.shape[1], data.shape[1]))

@@ -16,7 +16,6 @@ from spanning_tree_clustering.clustering_utils import fuzzy_hyper_volume, cluste
 np.warnings.filterwarnings('ignore', category=np.VisibleDeprecationWarning)
 
 
-# TODO: Требует тестирования и оптимизации кода как на c++, так и на Python.
 class SpanningTreeClustering(object):
     workers: int
     num_of_clusters: int
