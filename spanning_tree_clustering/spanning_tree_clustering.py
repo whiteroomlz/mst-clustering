@@ -15,6 +15,12 @@ from spanning_tree_clustering.clustering_utils import fuzzy_hyper_volume, cluste
 
 np.warnings.filterwarnings('ignore', category=np.VisibleDeprecationWarning)
 
+shared_data: RawArray
+shared_rows_count: RawValue
+shared_weighting_exponent: RawValue
+shared_partition_matrix: RawArray
+shared_clusters_count: RawValue
+
 
 class SpanningTreeClustering(object):
     workers: int
@@ -31,8 +37,8 @@ class SpanningTreeClustering(object):
     def __init__(self, num_of_workers=1):
         self.workers = num_of_workers
 
-    def clustering(self, data, num_of_clusters, cutting_condition, weighting_exponent, termination_tolerance,
-                   mst_algorithm="Prim", clustering_mode="hybrid"):
+    def fit(self, data, num_of_clusters, cutting_condition, weighting_exponent, termination_tolerance,
+            mst_algorithm="Prim", clustering_mode="hybrid"):
         if data.shape[0] <= 1:
             raise ValueError("Count of clustering values should be greater than 1.")
 
