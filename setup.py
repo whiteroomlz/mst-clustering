@@ -1,7 +1,7 @@
 import pybind11
 from setuptools import setup, Extension
 
-cpp_args = ['-std=c++20', '-stdlib=libc++', '-mmacosx-version-min=10.7']
+cpp_args = ['-std=c++2a', '-stdlib=libc++', '-mmacosx-version-min=10.7']
 
 ext_modules = [
     Extension(
