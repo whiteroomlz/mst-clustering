@@ -1,107 +1,87 @@
+#pragma once
+
 #include <unordered_map>
+#include <unordered_set>
 #include <iostream>
 #include <sstream>
 #include <utility>
+#include <numeric>
+#include <memory>
 #include <vector>
+#include <set>
 
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
 namespace py = pybind11;
 
-class Edge {
-public:
-    Edge(int32_t parent_id, int32_t child_id, double weight) : parent_id_(parent_id), child_id_(child_id), weight_(weight) {
-    }
-
-    int32_t getParentId() {
-        return parent_id_;
-    }
-
-    int32_t getChildId() {
-        return child_id_;
-    }
-
-    double getWeight() {
-        return weight_;
-    }
-
-private:
-    int32_t parent_id_;
-    int32_t child_id_;
-    double weight_;
-};
-
-class Node {
-public:
-    Node(int32_t id);
-
-    Node(int32_t id, Node* parent);
-
-    bool isRoot();
-
-    int32_t id() const;
-
-    Node* parent() const;
-
-    void setParent(Node* parent);
-
-    void addChild(int32_t id, double weight);
-
-    void addChild(Node* node, double weight);
-
-    Node* getNode(int32_t id);
-
-    double getWeight(Node* child);
-
-    static void erase(Node* child);
-
-    void getAllEdges(py::list result);
-
-    ~Node();
-
-private:
-    int32_t id_;
-    Node* parent_;
-    std::unordered_map<Node*, double> children_;
-};
-
 class SpanningForest {
 public:
+    struct Edge {
+        int32_t first_node; int32_t second_node; double edge_weight;
+
+        Edge(int32_t first_node, int32_t second_node, double edge_weight)
+            : first_node(first_node)
+            , second_node(second_node)
+            , edge_weight(edge_weight) {}
+    };
+
+    SpanningForest(const size_t size)
+        : roots_(std::vector<int32_t>(size))
+        , dsu_weights_(std::vector<size_t>(size, 1))
+        , trees_count_(size) {
+        std::iota(roots_.begin(), roots_.end(), 0);
+    }
+
     size_t size() const;
 
-    void addEdge(int32_t first_id, int32_t second_id, double weight);
+    bool isSpanningTree() const;
 
-    void removeEdge(int32_t first_id, int32_t second_id);
+    int32_t findRoot(const int32_t item);
 
-    void getRootEdges(int32_t index, py::list result) const;
+    void getRoots(py::list result);
 
-    int32_t getRootId(int32_t index) const;
+    void getEdges(const int32_t root, py::list result);
 
-    ~SpanningForest();
+    void addEdge(const int32_t first_node, const int32_t second_node, const double edge_weight);
+
+    void removeEdge(int32_t first_node, int32_t second_node);
 
 private:
-    std::vector<Node*> roots_;
+    std::unordered_multimap<int32_t, std::shared_ptr<Edge>> edges_;
 
-    void reverse(Node* node);
+    std::vector<int32_t> roots_;
+
+    std::vector<size_t> dsu_weights_;
+
+    size_t trees_count_;
+
+private:
+    void dsuUnite(const int32_t first_node, const int32_t second_node);
+
+    void getTreeItems(int32_t node, std::unordered_set<int32_t>* unique_nodes,
+        std::unordered_set<std::shared_ptr<Edge>>* edges) const;
 };
 
 PYBIND11_MODULE(spanning_forest, m) {
-    py::class_<Edge>(m, "Edge")
+    py::class_<SpanningForest::Edge>(m, "Edge")
         .def(py::init<int32_t, int32_t, double>(), py::arg("parent_id"), py::arg("child_id"), py::arg("weight"))
-        .def("get_parent_id", &Edge::getParentId, "Returns the id of parent's node.")
-        .def("get_child_id", &Edge::getChildId, "Returns the id of child's node.")
-        .def("get_weight", &Edge::getWeight, "Returns the weight of the edge.");
+        .def_readonly("first_node", &SpanningForest::Edge::first_node)
+        .def_readonly("second_node", &SpanningForest::Edge::second_node)
+        .def_readonly("edge_weight", &SpanningForest::Edge::edge_weight);
 
     py::class_<SpanningForest>(m, "SpanningForest")
-        .def(py::init<>())
+        .def(py::init<size_t>(), py::arg("capacity"))
         .def("size", &SpanningForest::size, "Returns the number of spanning trees in the forest.")
+        .def("is_spanning_tree", &SpanningForest::isSpanningTree, "Returns true if the forest contains only one root.")
+        .def("find_root", &SpanningForest::findRoot, "Returns the root of the specified node.", py::arg("node"))
+        .def("get_roots", &SpanningForest::getRoots, "Returns all roots ids.", py::arg("output_list"))
+        .def("get_edges", &SpanningForest::getEdges, "Returns all edges of root with the specified id.",
+            py::arg("root"), py::arg("output_list"))
         .def("add_edge", &SpanningForest::addEdge, "Adds an edge between the two nodes with specified ids.",
-            py::arg("first_id"), py::arg("second_id"), py::arg("weight"))
+            py::arg("first_node"), py::arg("second_node"), py::arg("edge_weight"))
         .def("remove_edge", &SpanningForest::removeEdge, "Removes the edge between the two nodes with specified ids.",
-            py::arg("first_id"), py::arg("second_id"))
-        .def("get_root_edges", &SpanningForest::getRootEdges, "Returns all edges of root with the specified index.")
-        .def("get_root_id", &SpanningForest::getRootId, "Returns id of root with the specified index.");
+            py::arg("first_node"), py::arg("second_node"));
 
 #ifdef VERSION_INFO
     m.attr("__version__") = VERSION_INFO;
@@ -110,188 +90,133 @@ PYBIND11_MODULE(spanning_forest, m) {
 #endif
 }
 
-Node::Node(int32_t id) : Node(id, nullptr) {
-}
-
-Node::Node(int32_t id, Node* parent) : id_(id), parent_(parent) {
-}
-
-bool Node::isRoot() {
-    return parent_ == nullptr;
-}
-
-int32_t Node::id() const {
-    return id_;
-}
-
-Node* Node::parent() const {
-    return parent_;
-}
-
-void Node::setParent(Node* parent) {
-    parent_ = parent;
-}
-
-void Node::addChild(int32_t id, double weight) {
-    children_[new Node(id, this)] = weight;
-}
-
-void Node::addChild(Node* node, double weight) {
-    node->parent_ = this;
-    children_[node] = weight;
-}
-
-Node* Node::getNode(int32_t id) {
-    if (id_ == id) {
-        return this;
-    }
-
-    for (auto key_value_pair : children_) {
-        Node* child = key_value_pair.first;
-
-        Node* result = child->getNode(id);
-
-        if (result != nullptr) {
-            return result;
-        }
-    }
-
-    return nullptr;
-}
-
-double Node::getWeight(Node* child) {
-    return children_[child];
-}
-
-void Node::erase(Node* child) {
-    child->parent_->children_.erase(child);
-}
-
-void Node::getAllEdges(py::list result) {
-    if (!children_.empty()) {
-        for (auto key_value_pair : children_) {
-            Node* child = key_value_pair.first;
-
-            result.append(Edge(id_, child->id_, getWeight(child)));
-            child->getAllEdges(result);
-        }
-    }
-}
-
-Node::~Node() {
-    for (auto key_value_pair : children_) {
-        delete key_value_pair.first;
-    }
-}
-
 size_t SpanningForest::size() const {
-    return roots_.size();
+    return trees_count_;
 }
 
-void SpanningForest::addEdge(int32_t first_id, int32_t second_id, double weight) {
-    Node* first_node = nullptr;
-    Node* second_node = nullptr;
-    Node* temp = nullptr;
+bool SpanningForest::isSpanningTree() const {
+    return trees_count_ == 1;
+}
 
-    for (auto root : roots_) {
-        if ((first_node = root->getNode(first_id)) != nullptr) {
-            temp = root;
+int32_t SpanningForest::findRoot(const int32_t node) {
+    if (node == roots_[node]) {
+        return node;
+    }
+
+    return roots_[node] = findRoot(roots_[node]);
+}
+
+void SpanningForest::getRoots(py::list result) {
+    std::set<int32_t> roots;
+
+    for (int32_t node = 0; node < roots_.size(); ++node) {
+        roots.insert(findRoot(node));
+    }
+
+    for (int32_t root : roots) {
+        result.append(root);
+    }
+}
+
+void SpanningForest::getEdges(const int32_t root, py::list result) {
+    std::unordered_set<int32_t> second_tree_nodes;
+    std::unordered_set<std::shared_ptr<Edge>> edges;
+    getTreeItems(root, &second_tree_nodes, &edges);
+
+    for (std::shared_ptr<Edge> edge : edges) {
+        result.append(Edge(edge.get()->first_node, edge.get()->second_node, edge.get()->edge_weight));
+    }
+}
+
+void SpanningForest::addEdge(const int32_t first_node, const int32_t second_node, const double edge_weight) {
+    dsuUnite(first_node, second_node);
+
+    std::shared_ptr<Edge> edge(new Edge{ first_node, second_node, edge_weight });
+    edges_.emplace(first_node, edge);
+    edges_.emplace(second_node, edge);
+
+    --trees_count_;
+}
+
+void SpanningForest::removeEdge(int32_t first_node, int32_t second_node) {
+    auto first_values_range = edges_.equal_range(first_node);
+    for (auto key_value = first_values_range.first; key_value != first_values_range.second; ++key_value) {
+        if ((*key_value).second.get()->second_node == second_node) {
+            edges_.erase(key_value);
             break;
         }
     }
 
-    for (auto root : roots_) {
-        if ((second_node = root->getNode(second_id)) != nullptr) {
-            if (root == temp) {
-                std::stringstream message;
-                message << "In result of adding edge [" << first_id << "; " << second_id << "] the cycle will be generated.";
-                throw std::invalid_argument(message.str());
-            }
-            temp = root;
+    auto second_values_range = edges_.equal_range(second_node);
+    for (auto key_value = second_values_range.first; key_value != second_values_range.second; ++key_value) {
+        if ((*key_value).second.get()->first_node == first_node) {
+            edges_.erase(key_value);
             break;
         }
     }
 
-    if (first_node != nullptr && second_node != nullptr) {
-        reverse(second_node);
+    std::unordered_set<int32_t> second_tree_nodes;
+    std::unordered_set<std::shared_ptr<Edge>> edges;
 
-        first_node->addChild(second_node, weight);
-        second_node->setParent(first_node);
+    getTreeItems(second_node, &second_tree_nodes, &edges);
+    if (second_tree_nodes.find(findRoot(second_node)) != second_tree_nodes.end()) {
+        std::swap(first_node, second_node);
+        second_tree_nodes.clear();
+        edges.clear();
+        getTreeItems(second_node, &second_tree_nodes, &edges);
+    }
 
-        for (auto iterator = roots_.begin(); iterator < roots_.end(); iterator++) {
-            if (*iterator == temp) {
-                roots_.erase(iterator);
-                break;
-            }
+    dsu_weights_[findRoot(first_node)] -= second_tree_nodes.size();
+
+    for (const int32_t node : second_tree_nodes) {
+        roots_[node] = node;
+        dsu_weights_[node] = 1;
+    }
+
+    for (const std::shared_ptr<Edge> edge : edges) {
+        dsuUnite(edge.get()->first_node, edge.get()->second_node);
+    }
+
+    ++trees_count_;
+}
+
+void SpanningForest::dsuUnite(const int32_t first_node, const int32_t second_node) {
+    static class CycleProducingException : public std::invalid_argument {
+    public:
+        CycleProducingException(std::string message) : std::invalid_argument(message) {};
+    };
+
+    int32_t first_parent = findRoot(first_node);
+    int32_t second_parent = findRoot(second_node);
+
+    if (first_parent == second_parent) {
+        std::stringstream message;
+        message << "Uniting the passed nodes {" << first_node << "} and {"
+            << second_node << "} will produce a cycle.";
+        throw CycleProducingException(message.str());
+    }
+
+    if (dsu_weights_[first_parent] < dsu_weights_[second_parent]) {
+        std::swap(first_parent, second_parent);
+    }
+
+    roots_[second_parent] = first_parent;
+    dsu_weights_[first_parent] += dsu_weights_[second_parent];
+}
+
+void SpanningForest::getTreeItems(int32_t node, std::unordered_set<int32_t>* unique_nodes,
+    std::unordered_set<std::shared_ptr<Edge>>* edges) const {
+    unique_nodes->insert(node);
+
+    auto key_values_range = edges_.equal_range(node);
+    for (auto key_value = key_values_range.first; key_value != key_values_range.second; ++key_value) {
+        std::shared_ptr<Edge> edge = (*key_value).second;
+        edges->insert(edge);
+
+        int32_t other_node = edge->first_node == node ? edge->second_node : edge->first_node;
+
+        if (unique_nodes->find(other_node) == unique_nodes->end()) {
+            getTreeItems(other_node, unique_nodes, edges);
         }
-    } else if (first_node != nullptr) {
-        first_node->addChild(second_id, weight);
-
-    } else if (second_node != nullptr) {
-        second_node->addChild(first_id, weight);
-
-    } else {
-        Node* root = new Node(first_id);
-        root->addChild(second_id, weight);
-        roots_.emplace_back(root);
-    }
-}
-
-void SpanningForest::removeEdge(int32_t first_id, int32_t second_id) {
-    Node* first_node = nullptr;
-    Node* second_node = nullptr;
-
-    for (auto root : roots_) {
-        if ((first_node = root->getNode(first_id)) != nullptr) {
-            if ((second_node = root->getNode(second_id)) != nullptr) {
-                if (second_node->parent() == first_node) {
-                    first_node->erase(second_node);
-                    second_node->setParent(nullptr);
-                    roots_.emplace_back(second_node);
-                    return;
-
-                } else if (first_node->parent() == second_node) {
-                    first_node->setParent(nullptr);
-                    second_node->erase(first_node);
-                    roots_.emplace_back(first_node);
-                    return;
-
-                } else {
-                    break;
-                }
-            } else {
-                break;
-            }
-        }
-    }
-
-    std::stringstream message;
-    message << "The edge [" << first_id << "; " << second_id << "] does not exist.";
-    throw std::invalid_argument(message.str());
-}
-
-void SpanningForest::getRootEdges(int32_t index, py::list result) const {
-    roots_.at(index)->getAllEdges(result);
-}
-
-int32_t SpanningForest::getRootId(int32_t index) const {
-    return roots_.at(index)->id();
-}
-
-void SpanningForest::reverse(Node* node) {
-    if (node->parent() == nullptr) {
-        return;
-    }
-
-    reverse(node->parent());
-
-    Node* parent = node->parent();
-    node->addChild(parent, parent->getWeight(node));
-    parent->erase(node);
-}
-
-SpanningForest::~SpanningForest() {
-    for (auto root : roots_) {
-        delete root;
     }
 }

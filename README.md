@@ -37,6 +37,6 @@ if __name__ == "__main__":
     X, y = make_blobs(n_samples=1000, n_features=10, centers=7)
 
     clustering = SpanningTreeClustering(num_of_workers=4)
-    clustering.fit(X, num_of_clusters=7, cutting_condition=3, termination_tolerance=1, weighting_exponent=1.5)
+    clustering.fit(X, num_of_clusters=7, cutting_cond=3, termination_tolerance=1, weighting_exp=1.5)
     labels = clustering.get_labels()
 ```

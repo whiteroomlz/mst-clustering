@@ -11,18 +11,11 @@ ext_modules = [
         language='c++',
         extra_compile_args=cpp_args,
     ),
-    Extension(
-        'dsu',
-        sources=['spanning_tree_clustering/cpp_source/dsu/dsu.cpp'],
-        include_dirs=[pybind11.get_include()],
-        language='c++',
-        extra_compile_args=cpp_args,
-    ),
 ]
 
 setup(
     name="spanning_tree_clustering",
-    version='1.1',
+    version='1.2',
     description='Implementation of fuzzy clustering algorithms based on spanning trees',
     author='Nikita Borodin',
     author_email='borodinik.s@gmail.com',
