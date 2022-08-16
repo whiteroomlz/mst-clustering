@@ -53,15 +53,18 @@ class SpanningTreeClustering(object):
 
         return self
 
-    def get_labels(self) -> np.ndarray:
+    @property
+    def labels(self) -> np.ndarray:
         labels = np.argmax(self.__partition, axis=0)
         labels_with_noise = np.where(labels == self.__noise_occurrences, -1, labels)
         return labels_with_noise
 
-    def get_partition(self) -> np.ndarray:
+    @property
+    def partition(self) -> np.ndarray:
         return self.__partition
 
-    def get_clusters_count(self) -> np.ndarray:
+    @property
+    def clusters_count(self) -> np.ndarray:
         return self.__partition.shape[0]
 
     @staticmethod

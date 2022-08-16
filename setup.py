@@ -25,6 +25,7 @@ setup(
         "certifi",
         "joblib",
         "numpy",
+        "numba",
         "scikit-learn",
         "scipy",
         "sklearn",
