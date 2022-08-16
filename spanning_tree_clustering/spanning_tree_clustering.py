@@ -6,7 +6,6 @@ from concurrent.futures import ProcessPoolExecutor, wait, ALL_COMPLETED
 from spanning_tree_clustering.cpp_utils import SpanningForest, Edge
 from multiprocessing.sharedctypes import RawArray, RawValue
 from sklearn.preprocessing import normalize
-from collections import defaultdict
 from numba import njit, prange
 from decimal import Decimal
 
@@ -116,7 +115,7 @@ class SpanningTreeClustering(object):
         return cluster_ids, cluster_edges, cluster_center
 
     def __get_distance_matrix(self) -> np.ndarray:
-        pool_args = (defaultdict(None, {
+        pool_args = (dict({
             "shared_data": RawArray(ctypes.c_double, self.__data.flatten()),
             "shared_partition": RawArray(ctypes.c_double, self.__partition.flatten()),
             "shared_rows_count": RawValue(ctypes.c_int32, self.__data.shape[0]),
@@ -179,7 +178,7 @@ class SpanningTreeClustering(object):
     def __simple_clustering(self):
         noise_roots = set()
 
-        pool_args = (defaultdict(None, {
+        pool_args = (dict({
             "shared_data": RawArray(ctypes.c_double, self.__data.flatten()),
             "shared_rows_count": RawValue(ctypes.c_int32, self.__data.shape[0]),
             "shared_weighting_exponent": RawValue(ctypes.c_double, self.weighting_exponent)
@@ -187,9 +186,7 @@ class SpanningTreeClustering(object):
 
         with ProcessPoolExecutor(max_workers=self.num_of_workers, initializer=pool_init, initargs=pool_args) as pool:
             while self.__forest.size() < self.num_of_clusters:
-                params = list(map(
-                    lambda cluster: self.__get_cluster_params(self.__forest, cluster), range(self.__forest.size())
-                ))
+                params = list(map(lambda c: self.__get_cluster_params(self.__forest, c), range(self.__forest.size())))
                 futures = list(pool.submit(parallel_fuzzy_hyper_volume, ids, center) for ids, _, center in params)
                 wait(futures, return_when=ALL_COMPLETED)
                 fuzzy_volumes = np.fromiter(map(lambda future: future.result(), futures), dtype=np.float64)
@@ -237,32 +234,35 @@ class SpanningTreeClustering(object):
                     self.__partition[cluster, point_index] = partition
 
 
-# Parallel computation.
+# Parallel computation block.
 
-shared_data: RawArray
-shared_partition: RawArray
-shared_rows_count: RawValue
-shared_clusters_count: RawValue
-shared_weighting_exponent: RawValue
+shared_memory: dict
 
 
-def pool_init(pool_args: defaultdict):
-    global shared_data, shared_partition, shared_rows_count, shared_clusters_count, shared_weighting_exponent
-
-    shared_data = pool_args.get("shared_data")
-    shared_partition = pool_args.get("shared_partition")
-    shared_rows_count = pool_args.get("shared_rows_count")
-    shared_clusters_count = pool_args.get("shared_clusters_count")
-    shared_weighting_exponent = pool_args.get("shared_weighting_exponent")
+def pool_init(pool_args: dict):
+    global shared_memory
+    shared_memory = pool_args.copy()
 
 
 def parallel_fuzzy_hyper_volume(cluster_ids: np.ndarray, cluster_center: np.ndarray) -> float:
+    global shared_memory
+    shared_data = shared_memory["shared_data"]
+    shared_rows_count = shared_memory["shared_rows_count"]
+    shared_weighting_exponent = shared_memory["shared_weighting_exponent"]
+
     data = np.frombuffer(shared_data).reshape((shared_rows_count.value, -1))
     weighting_exponent = shared_weighting_exponent.value
     return fuzzy_hyper_volume(data, weighting_exponent, cluster_ids, cluster_center)
 
 
 def parallel_compute_distances(cluster: int) -> np.ndarray:
+    global shared_memory
+    shared_data = shared_memory["shared_data"]
+    shared_partition = shared_memory["shared_partition"]
+    shared_rows_count = shared_memory["shared_rows_count"]
+    shared_clusters_count = shared_memory["shared_clusters_count"]
+    shared_weighting_exponent = shared_memory["shared_weighting_exponent"]
+
     data = np.frombuffer(shared_data).reshape((shared_rows_count.value, -1))
     weighting_exponent = shared_weighting_exponent.value
     partition = np.frombuffer(shared_partition).reshape((shared_clusters_count.value, -1))

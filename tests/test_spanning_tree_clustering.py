@@ -6,5 +6,12 @@ import matplotlib.pyplot as plt
 
 import timeit
 
+
 class TestSpanningTreeClustering(TestCase):
-    cls = SpanningTreeClustering(3, 1, 1, num_of_workers=6, clustering_algorithm="simple")
+    multiprocessing.freeze_support()
+
+    X, y = make_blobs(n_samples=1000, n_features=10, centers=7)
+
+    clustering = SpanningTreeClustering(3, 1, 1, num_of_workers=6, clustering_algorithm="simple")
+    clustering.fit(X, 7)
+    labels = clustering.labels
