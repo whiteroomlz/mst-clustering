@@ -1,20 +1,20 @@
-# Spanning tree clustering
+# Minimal Spanning Tree (MST) clustering
 
 ## Description
 
 This repository provides the Python package for clustering numpy arrays of n-dimensional vectors with methods based on a
-spanning tree construction, such as the Gath-Geva clustering algorithm.
+minimal spanning tree construction, such as the Zahn or Gath-Geva clustering algorithms.
 
 ## Installation and usage
 
 For installation use the next `pip` command:
 
 ```bash
-    pip install git+https://github.com/whiteroomlz/spanning-tree-clustering.git
+    pip install git+https://github.com/whiteroomlz/mst-clustering.git
 ```
 
-The class `SpanningTreeClustering` uses the [multiprocessing](https://docs.python.org/3/library/multiprocessing.html)
-module, so you should create an entry point in your main script:
+The classes `ZahnModel` and `GathGevaModel` use the [multiprocessing](https://docs.python.org/3/library/multiprocessing.html)
+module, so you should create an entry point in your main script if you include some of them into your `Pipeline`:
 
 ```python
 import multiprocessing
@@ -27,16 +27,25 @@ if __name__ == "__main__":
 Usage example:
 
 ```python
+import math
 import multiprocessing
+
+from mst_clustering.clustering_models import ZahnModel
 from sklearn.datasets import make_blobs
-from spanning_tree_clustering import SpanningTreeClustering
+from mst_clustering import Pipeline
+
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()
 
     X, y = make_blobs(n_samples=1000, n_features=10, centers=7)
 
-    clustering = SpanningTreeClustering(3, 1, 1, num_of_workers=6, clustering_algorithm="simple")
-    clustering.fit(X, 7)
-    labels = clustering.get_labels()
+    clustering = Pipeline(clustering_models=[
+        ZahnModel(3, 1.5, math.inf, num_of_clusters=7, use_additional_criterion=False),
+    ])
+    clustering.fit(data=X, workers_count=4)
+
+    labels = clustering.labels
+    partition = clustering.partition
+    clusters_count = clustering.clusters_count
 ```

@@ -1,10 +1,10 @@
+import math
 import multiprocessing
-from spanning_tree_clustering import SpanningTreeClustering
-from sklearn.datasets import make_blobs
-from unittest import TestCase
-import matplotlib.pyplot as plt
 
-import timeit
+from mst_clustering.clustering_models import ZahnModel
+from sklearn.datasets import make_blobs
+from mst_clustering import Pipeline
+from unittest import TestCase
 
 
 class TestSpanningTreeClustering(TestCase):
@@ -12,6 +12,11 @@ class TestSpanningTreeClustering(TestCase):
 
     X, y = make_blobs(n_samples=1000, n_features=10, centers=7)
 
-    clustering = SpanningTreeClustering(3, 1, 1, num_of_workers=6, clustering_algorithm="simple")
-    clustering.fit(X, 7)
+    clustering = Pipeline(clustering_models=[
+        ZahnModel(3, 1.5, math.inf, num_of_clusters=7, use_additional_criterion=False),
+    ])
+    clustering.fit(data=X, workers_count=4)
+
     labels = clustering.labels
+    partition = clustering.partition
+    clusters_count = clustering.clusters_count

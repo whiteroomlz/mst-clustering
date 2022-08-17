@@ -1,3 +1,5 @@
+import math
+
 import numpy as np
 from numba import njit
 from decimal import Decimal
@@ -30,7 +32,7 @@ def fuzzy_hyper_volume(data: np.ndarray, weighting_exponent: float, cluster_ids:
     det = np.linalg.det(fuzzy_covariance_matrix(data, weighting_exponent, partition, cluster_center))
 
     if det <= 0:
-        return -1
+        return math.inf
     else:
         return np.sqrt(det)
 

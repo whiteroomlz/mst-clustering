@@ -6,7 +6,7 @@ cpp_args = ['-std=c++2a']
 ext_modules = [
     Extension(
         'spanning_forest',
-        sources=['spanning_tree_clustering/cpp_source/spanning_forest/spanning_forest.cpp'],
+        sources=['mst_clustering/cpp_source/spanning_forest/spanning_forest.cpp'],
         include_dirs=[pybind11.get_include()],
         language='c++',
         extra_compile_args=cpp_args,
@@ -14,13 +14,13 @@ ext_modules = [
 ]
 
 setup(
-    name="spanning_tree_clustering",
-    version='1.2',
+    name="mst_clustering",
+    version='1.3',
     description='Implementation of fuzzy clustering algorithms based on spanning trees',
     author='Nikita Borodin',
     author_email='borodinik.s@gmail.com',
-    url='https://github.com/whiteroomlz/spanning-tree-clustering/',
-    packages=["spanning_tree_clustering", "spanning_tree_clustering.cpp_utils"],
+    url='https://github.com/whiteroomlz/mst-clustering/',
+    packages=["mst_clustering", "mst_clustering.cpp_adapters"],
     install_requires=[
         "certifi",
         "joblib",

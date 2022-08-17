@@ -18,9 +18,11 @@ class SpanningForest(object):
     def __init__(self, size: int):
         self.__spanning_forest = spanning_forest.SpanningForest(size)
 
+    @property
     def is_spanning_tree(self) -> bool:
         return self.__spanning_forest.is_spanning_tree()
 
+    @property
     def size(self) -> int:
         return self.__spanning_forest.size()
 
