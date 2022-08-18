@@ -1,12 +1,12 @@
-import ctypes
 import math
-
+import ctypes
 import numpy as np
 
-from mst_clustering.math_utils import fuzzy_hyper_volume, cluster_distances
-from concurrent.futures import ProcessPoolExecutor, wait, ALL_COMPLETED
+from mst_clustering.multiprocessing_tools import SharedMemoryPool, submittable
 from mst_clustering.cpp_adapters import SpanningForest, Edge
 from multiprocessing.sharedctypes import RawArray, RawValue
+from mst_clustering.math_utils import fuzzy_hyper_volume
+from concurrent.futures import wait, ALL_COMPLETED
 from abc import ABC, abstractmethod
 from decimal import Decimal
 
@@ -56,16 +56,30 @@ class ZahnModel(ClusteringModel):
 
     def __call__(self, data: np.ndarray, forest: SpanningForest, workers: int = 1, partition: np.ndarray = None) -> \
             np.ndarray:
-        pool_args = (dict({
+        shared_memory_dict = dict({
             "shared_data": RawArray(ctypes.c_double, data.flatten()),
             "shared_rows_count": RawValue(ctypes.c_int32, data.shape[0]),
             "shared_weighting_exponent": RawValue(ctypes.c_double, self.weighting_exp)
-        }),)
+        })
 
-        with ProcessPoolExecutor(max_workers=workers, initializer=pool_init, initargs=pool_args) as pool:
+        @submittable
+        def fuzzy_hyper_volume_task(cluster_ids: np.ndarray, cluster_center: np.ndarray) -> float:
+            import numpy as np
+            from mst_clustering.math_utils import fuzzy_hyper_volume
+
+            shared_memory = SharedMemoryPool.get_shared_memory()
+            shared_data = shared_memory["shared_data"]
+            shared_rows_count = shared_memory["shared_rows_count"]
+            shared_weighting_exponent = shared_memory["shared_weighting_exponent"]
+
+            data = np.frombuffer(shared_data).reshape((shared_rows_count.value, -1))
+            weighting_exponent = shared_weighting_exponent.value
+            return fuzzy_hyper_volume(data, weighting_exponent, cluster_ids, cluster_center)
+
+        with SharedMemoryPool(max_workers=workers, shared_memory_dict=shared_memory_dict) as pool:
             while self._check_num_of_clusters(forest):
                 info = list(map(lambda c: ZahnModel.get_cluster_info(data, forest, c), range(forest.size)))
-                futures = list(pool.submit(parallel_fuzzy_hyper_volume, ids, center) for ids, _, center in info)
+                futures = list(pool.submit(fuzzy_hyper_volume_task, ids, center) for ids, _, center in info)
 
                 wait(futures, return_when=ALL_COMPLETED)
 
@@ -173,50 +187,32 @@ class GathGevaModel(ClusteringModel):
         return partition
 
     def _get_distance_matrix(self, data: np.ndarray, partition: np.ndarray, workers: int) -> np.ndarray:
-        pool_args = (dict({
+        shared_memory_dict = dict({
             "shared_data": RawArray(ctypes.c_double, data.flatten()),
             "shared_partition": RawArray(ctypes.c_double, partition.flatten()),
             "shared_rows_count": RawValue(ctypes.c_int32, data.shape[0]),
             "shared_clusters_count": RawValue(ctypes.c_int32, partition.shape[0]),
             "shared_weighting_exponent": RawValue(ctypes.c_double, self.weighting_exp)
-        }),)
+        })
 
-        with ProcessPoolExecutor(max_workers=workers, initializer=pool_init, initargs=pool_args) as pool:
-            distance_matrix = np.vstack(list(pool.map(parallel_compute_distances, range(partition.shape[0]))))
+        @submittable
+        def compute_distances_task(cluster: int) -> np.ndarray:
+            import numpy as np
+            from mst_clustering.math_utils import cluster_distances
+
+            shared_memory = SharedMemoryPool.get_shared_memory()
+            shared_data = shared_memory["shared_data"]
+            shared_partition = shared_memory["shared_partition"]
+            shared_rows_count = shared_memory["shared_rows_count"]
+            shared_clusters_count = shared_memory["shared_clusters_count"]
+            shared_weighting_exponent = shared_memory["shared_weighting_exponent"]
+
+            data = np.frombuffer(shared_data).reshape((shared_rows_count.value, -1))
+            weighting_exponent = shared_weighting_exponent.value
+            partition = np.frombuffer(shared_partition).reshape((shared_clusters_count.value, -1))
+            return cluster_distances(data, weighting_exponent, partition, cluster)
+
+        with SharedMemoryPool(max_workers=workers, shared_memory_dict=shared_memory_dict) as pool:
+            distance_matrix = np.vstack(list(pool.map(compute_distances_task, range(partition.shape[0]))))
 
         return distance_matrix
-
-
-# Parallel computation block.
-
-shared_memory: dict
-
-
-def pool_init(pool_args: dict):
-    global shared_memory
-    shared_memory = pool_args.copy()
-
-
-def parallel_fuzzy_hyper_volume(cluster_ids: np.ndarray, cluster_center: np.ndarray) -> float:
-    global shared_memory
-    shared_data = shared_memory["shared_data"]
-    shared_rows_count = shared_memory["shared_rows_count"]
-    shared_weighting_exponent = shared_memory["shared_weighting_exponent"]
-
-    data = np.frombuffer(shared_data).reshape((shared_rows_count.value, -1))
-    weighting_exponent = shared_weighting_exponent.value
-    return fuzzy_hyper_volume(data, weighting_exponent, cluster_ids, cluster_center)
-
-
-def parallel_compute_distances(cluster: int) -> np.ndarray:
-    global shared_memory
-    shared_data = shared_memory["shared_data"]
-    shared_partition = shared_memory["shared_partition"]
-    shared_rows_count = shared_memory["shared_rows_count"]
-    shared_clusters_count = shared_memory["shared_clusters_count"]
-    shared_weighting_exponent = shared_memory["shared_weighting_exponent"]
-
-    data = np.frombuffer(shared_data).reshape((shared_rows_count.value, -1))
-    weighting_exponent = shared_weighting_exponent.value
-    partition = np.frombuffer(shared_partition).reshape((shared_clusters_count.value, -1))
-    return cluster_distances(data, weighting_exponent, partition, cluster)
