@@ -181,11 +181,6 @@ void SpanningForest::removeEdge(int32_t first_node, int32_t second_node) {
 }
 
 void SpanningForest::dsuUnite(const int32_t first_node, const int32_t second_node) {
-    static class CycleProducingException : public std::invalid_argument {
-    public:
-        CycleProducingException(std::string message) : std::invalid_argument(message) {};
-    };
-
     int32_t first_parent = findRoot(first_node);
     int32_t second_parent = findRoot(second_node);
 
@@ -193,7 +188,7 @@ void SpanningForest::dsuUnite(const int32_t first_node, const int32_t second_nod
         std::stringstream message;
         message << "Uniting the passed nodes {" << first_node << "} and {"
             << second_node << "} will produce a cycle.";
-        throw CycleProducingException(message.str());
+        throw std::invalid_argument(message.str());
     }
 
     if (dsu_weights_[first_parent] < dsu_weights_[second_parent]) {
