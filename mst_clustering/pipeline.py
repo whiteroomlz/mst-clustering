@@ -1,40 +1,56 @@
+import copy
+
 import numpy as np
 
 from mst_clustering.clustering_models import ClusteringModel
+from mst_clustering.cpp_adapters import SpanningForest
 from mst_clustering.mst_builder import MstBuilder
 from sklearn.preprocessing import normalize
+from typing import Iterator
 
 np.warnings.filterwarnings('ignore', category=np.VisibleDeprecationWarning)
 
 
 class Pipeline:
     clustering_models: list[ClusteringModel]
+    spanning_forest: SpanningForest = None
+    partition: np.ndarray
 
-    _partition: np.ndarray
+    __models_iterator: Iterator[ClusteringModel]
+    __data: np.ndarray
 
     def __init__(self, clustering_models: list[ClusteringModel]):
         self.clustering_models = clustering_models.copy()
+        self.__models_iterator = iter(clustering_models)
 
-    def fit(self, data: np.ndarray, workers_count: int, initial_partition: np.ndarray = None):
-        data = normalize(data.copy())
-        spanning_forest = MstBuilder.build(data)
+    def fit(self, data: np.ndarray = None, workers_count: int = 1, initial_partition: np.ndarray = None,
+            spanning_forest: SpanningForest = None, n_steps: int = None, use_normalization: bool = True):
+        if data is not None:
+            self.__data = normalize(data.copy()) if use_normalization else data.copy()
+
+        if spanning_forest is not None:
+            self.spanning_forest = copy.deepcopy(spanning_forest)
+        elif self.spanning_forest is None:
+            self.spanning_forest = MstBuilder.build(data)
 
         partition = initial_partition
-        for model in self.clustering_models:
-            partition = model(data=data, forest=spanning_forest, workers=workers_count, partition=partition)
-        self._partition = partition
+
+        for _ in range(n_steps if n_steps is not None else len(self.clustering_models)):
+            try:
+                model = next(self.__models_iterator)
+            except StopIteration as _:
+                break
+
+            partition = model(data=self.__data, forest=self.spanning_forest, workers=workers_count, partition=partition)
+            self.partition = partition
 
         return self
 
     @property
     def labels(self) -> np.ndarray:
-        labels = np.argmax(self._partition, axis=0)
+        labels = np.argmax(self.partition, axis=0)
         return labels
 
     @property
-    def partition(self) -> np.ndarray:
-        return self._partition
-
-    @property
     def clusters_count(self) -> np.ndarray:
-        return self._partition.shape[0]
+        return self.partition.shape[0]
