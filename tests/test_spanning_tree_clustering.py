@@ -1,10 +1,10 @@
 import math
 import multiprocessing
+from unittest import TestCase
+from sklearn.datasets import make_blobs
 
 from mst_clustering.clustering_models import ZahnModel
-from sklearn.datasets import make_blobs
 from mst_clustering import Pipeline
-from unittest import TestCase
 
 
 class TestSpanningTreeClustering(TestCase):

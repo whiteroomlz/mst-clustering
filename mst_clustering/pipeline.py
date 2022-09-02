@@ -1,12 +1,12 @@
 import copy
-
 import numpy as np
+
+from typing import Iterator
+from sklearn.preprocessing import normalize
 
 from mst_clustering.clustering_models import ClusteringModel
 from mst_clustering.cpp_adapters import SpanningForest
 from mst_clustering.mst_builder import MstBuilder
-from sklearn.preprocessing import normalize
-from typing import Iterator
 
 np.warnings.filterwarnings('ignore', category=np.VisibleDeprecationWarning)
 
@@ -38,7 +38,7 @@ class Pipeline:
         for _ in range(n_steps if n_steps is not None else len(self.clustering_models)):
             try:
                 model = next(self.__models_iterator)
-            except StopIteration as _:
+            except StopIteration:
                 break
 
             partition = model(data=self.__data, forest=self.spanning_forest, workers=workers_count, partition=partition)

@@ -1,13 +1,13 @@
 import math
-
 import numpy as np
+
+from numpy import ndarray as ndarr
 from numba import njit
 from decimal import Decimal
 
 
 @njit(cache=True)
-def fuzzy_covariance_matrix(data: np.ndarray, weighting_exponent: float, partition: np.ndarray,
-                            cluster_center: np.ndarray) -> np.ndarray:
+def fuzzy_covariance_matrix(data: ndarr, weighting_exp: float, partition: ndarr, cluster_center: ndarr) -> ndarr:
     covariance_matrix = np.zeros((data.shape[1], data.shape[1]))
 
     diff_matrix = data - cluster_center
@@ -15,7 +15,7 @@ def fuzzy_covariance_matrix(data: np.ndarray, weighting_exponent: float, partiti
 
     for index in np.arange(diff_matrix.shape[0]):
         diff_vector = np.expand_dims(diff_matrix[index, :], 0).T
-        partition_ratio = partition[index] ** weighting_exponent
+        partition_ratio = partition[index] ** weighting_exp
         covariance_matrix += partition_ratio * diff_vector @ diff_vector.T
         partition_sum += partition_ratio
     covariance_matrix /= partition_sum
@@ -24,8 +24,7 @@ def fuzzy_covariance_matrix(data: np.ndarray, weighting_exponent: float, partiti
 
 
 @njit(cache=True)
-def fuzzy_hyper_volume(data: np.ndarray, weighting_exponent: float, cluster_ids: np.ndarray,
-                       cluster_center: np.ndarray) -> float:
+def fuzzy_hyper_volume(data: ndarr, weighting_exponent: float, cluster_ids: ndarr, cluster_center: ndarr) -> float:
     partition = np.zeros(data.shape[0])
     partition[cluster_ids] = 1
 
@@ -38,7 +37,7 @@ def fuzzy_hyper_volume(data: np.ndarray, weighting_exponent: float, cluster_ids:
 
 
 @njit(cache=True)
-def cluster_distances(data: np.ndarray, weighting_exponent: float, partition: np.ndarray, cluster: int) -> np.ndarray:
+def cluster_distances(data: ndarr, weighting_exponent: float, partition: ndarr, cluster: int) -> ndarr:
     count_of_points = data.shape[0]
     partition_ratio = partition[cluster] ** weighting_exponent
     cluster_center = zero_axis_sum((data.T * partition_ratio).T) / np.sum(partition_ratio)
@@ -48,19 +47,17 @@ def cluster_distances(data: np.ndarray, weighting_exponent: float, partition: np
 
     distances = np.ones(count_of_points, dtype=Decimal)
 
-    if det > 0:
-        priory_probability = Decimal(np.sum(partition_ratio) / count_of_points)
-        fhv = Decimal(np.sqrt(det))
-
-        for point_index in np.arange(count_of_points):
-            diff_vector = (data[point_index] - cluster_center)[np.newaxis, :].T
-            distance = (fhv * ((Decimal(2 * np.pi)) ** Decimal(0.5 * count_of_points))) / priory_probability
-            distance *= Decimal(
-                float(0.5 * (diff_vector.T @ np.linalg.inv(covariance_matrix) @ diff_vector))
-            ).exp()
-            distances[point_index] = distance
-    else:
+    if det <= 0:
         raise ValueError("Poor initial approximation.")
+
+    priory_probability = Decimal(np.sum(partition_ratio) / count_of_points)
+    fhv = Decimal(np.sqrt(det))
+
+    for point_index in np.arange(count_of_points):
+        diff_vector = (data[point_index] - cluster_center)[np.newaxis, :].T
+        distance = (fhv * ((Decimal(2 * np.pi)) ** Decimal(0.5 * count_of_points))) / priory_probability
+        distance *= Decimal(float(0.5 * (diff_vector.T @ np.linalg.inv(covariance_matrix) @ diff_vector))).exp()
+        distances[point_index] = distance
 
     return distances
 

@@ -2,27 +2,29 @@ import math
 import ctypes
 import numpy as np
 
+from itertools import product
+from numpy import ndarray
+from decimal import Decimal
+from abc import ABC, abstractmethod
+from concurrent.futures import wait, ALL_COMPLETED
+
 from mst_clustering.multiprocessing_tools import SharedMemoryPool, submittable
 from mst_clustering.cpp_adapters import SpanningForest, Edge
 from multiprocessing.sharedctypes import RawArray, RawValue
 from mst_clustering.math_utils import fuzzy_hyper_volume
-from concurrent.futures import wait, ALL_COMPLETED
-from abc import ABC, abstractmethod
-from decimal import Decimal
 
 
 class ClusteringModel(ABC):
     @abstractmethod
-    def __call__(self, data: np.ndarray, forest: SpanningForest, workers: int = 1, partition: np.ndarray = None) \
-            -> np.ndarray:
+    def __call__(self, data: ndarray, forest: SpanningForest, workers: int = 1, partition: ndarray = None) -> ndarray:
         pass
 
     @staticmethod
-    def get_cluster_info(data: np.ndarray, forest: SpanningForest, cluster_idx: int) -> (np.ndarray, list, np.ndarray):
+    def get_cluster_info(data: ndarray, forest: SpanningForest, cluster_idx: int) -> (ndarray, list, ndarray):
         root = forest.get_roots()[cluster_idx]
         cluster_edges = forest.get_edges(root)
 
-        if len(cluster_edges) == 0:
+        if not cluster_edges:
             cluster_ids = np.array([root])
             cluster_center = data[cluster_ids.squeeze()]
         else:
@@ -34,12 +36,12 @@ class ClusteringModel(ABC):
 
 class ZahnModel(ClusteringModel):
     cutting_cond: float
-    weighting_exp: float
     fhv_condition: float
+    weighting_exp: float
     num_of_clusters: int
     use_first_criterion: bool
-    use_second_criterion: bool
     use_third_criterion: bool
+    use_second_criterion: bool
     use_additional_criterion: bool
 
     def __init__(self, cutting_condition, weighting_exponent, fhv_condition, num_of_clusters: int = -1,
@@ -54,8 +56,8 @@ class ZahnModel(ClusteringModel):
         self.use_third_criterion = use_third_criterion
         self.use_additional_criterion = use_additional_criterion
 
-    def __call__(self, data: np.ndarray, forest: SpanningForest, workers: int = 1, partition: np.ndarray = None) -> \
-            np.ndarray:
+    def __call__(self, data: ndarray, forest: SpanningForest, workers: int = 1, partition: ndarray = None) -> \
+            ndarray:
         shared_memory_dict = dict({
             "shared_data": RawArray(ctypes.c_double, data.flatten()),
             "shared_rows_count": RawValue(ctypes.c_int32, data.shape[0]),
@@ -63,7 +65,7 @@ class ZahnModel(ClusteringModel):
         })
 
         @submittable
-        def fuzzy_hyper_volume_task(cluster_ids: np.ndarray, cluster_center: np.ndarray) -> float:
+        def fuzzy_hyper_volume_task(cluster_ids: ndarray, cluster_center: ndarray) -> float:
             import numpy as np
             from mst_clustering.math_utils import fuzzy_hyper_volume
 
@@ -78,7 +80,7 @@ class ZahnModel(ClusteringModel):
 
         with SharedMemoryPool(max_workers=workers, shared_memory_dict=shared_memory_dict) as pool:
             while self._check_num_of_clusters(forest):
-                info = list(map(lambda c: ZahnModel.get_cluster_info(data, forest, c), range(forest.size)))
+                info = map(lambda c: ZahnModel.get_cluster_info(data, forest, c), range(forest.size))
                 futures = list(pool.submit(fuzzy_hyper_volume_task, ids, center) for ids, _, center in info)
 
                 wait(futures, return_when=ALL_COMPLETED)
@@ -105,25 +107,25 @@ class ZahnModel(ClusteringModel):
 
         partition = np.zeros((forest.size, data.shape[0]))
         for cluster in range(forest.size):
-            cluster_ids, _, _ = ZahnModel.get_cluster_info(data, forest, cluster)
+            cluster_ids, *_ = ZahnModel.get_cluster_info(data, forest, cluster)
             partition[cluster, cluster_ids] = 1
 
         return partition
 
-    def _check_num_of_clusters(self, forest):
+    def _check_num_of_clusters(self, forest) -> bool:
         return self.num_of_clusters == -1 or forest.size < self.num_of_clusters
 
-    def _check_first_criterion(self, data: np.ndarray, forest: SpanningForest, edge_weight: float) -> bool:
+    def _check_first_criterion(self, data: ndarray, forest: SpanningForest, edge_weight: float) -> bool:
         all_edges = forest.get_edges(forest.get_roots()[0])
         criterion = self.cutting_cond * sum(map(lambda edge: edge.weight, all_edges)) / (data.shape[0] - 1)
         return edge_weight >= criterion
 
-    def _check_second_criterion(self, edges_weights: np.ndarray, edge_index: int) -> bool:
+    def _check_second_criterion(self, edges_weights: ndarray, edge_index: int) -> bool:
         weight = edges_weights[edge_index]
         edges_weights = np.delete(edges_weights, edge_index)
         return weight / np.mean(edges_weights) >= self.cutting_cond
 
-    def _check_third_criterion(self, data: np.ndarray, cluster_edges: list) -> Edge or None:
+    def _check_third_criterion(self, data: ndarray, cluster_edges: list) -> Edge or None:
         bad_edge_index = None
 
         temp_forest = SpanningForest(data.shape[0])
@@ -162,8 +164,7 @@ class GathGevaModel(ClusteringModel):
         self.termination_tolerance = termination_tolerance
         self.weighting_exp = weighting_exponent
 
-    def __call__(self, data: np.ndarray, forest: SpanningForest, workers: int = 1, partition: np.ndarray = None) -> \
-            np.ndarray:
+    def __call__(self, data: ndarray, forest: SpanningForest, workers: int = 1, partition: ndarray = None) -> ndarray:
         assert partition is not None, "This clustering method requires a non None partition matrix."
 
         initial_clusters_count = partition.shape[0]
@@ -171,22 +172,20 @@ class GathGevaModel(ClusteringModel):
 
         while np.linalg.norm(partition - previous_partition) > self.termination_tolerance:
             previous_partition = partition.copy()
-            power = Decimal(2 / (self.weighting_exp - 1))
+            pow = Decimal(2 / (self.weighting_exp - 1))
 
             distance_matrix = self._get_distance_matrix(data, partition, workers)
 
-            for cluster in np.arange(partition.shape[0]):
-                for point_index in np.arange(partition.shape[1]):
-                    distance = distance_matrix[cluster, point_index]
-                    partition = sum(map(lambda other_cluster:
-                                        (distance / distance_matrix[other_cluster, point_index]) ** power,
-                                        np.arange(initial_clusters_count)))
-                    partition **= -1
-                    partition[cluster, point_index] = partition
+            for cluster, point_idx in product(np.arange(partition.shape[0]), np.arange(partition.shape[1])):
+                distance = distance_matrix[cluster, point_idx]
+                partition = sum(map(lambda other_cluster: (distance / distance_matrix[other_cluster, point_idx]) ** pow,
+                                np.arange(initial_clusters_count)))
+                partition **= -1
+                partition[cluster, point_idx] = partition
 
         return partition
 
-    def _get_distance_matrix(self, data: np.ndarray, partition: np.ndarray, workers: int) -> np.ndarray:
+    def _get_distance_matrix(self, data: ndarray, partition: ndarray, workers: int) -> ndarray:
         shared_memory_dict = dict({
             "shared_data": RawArray(ctypes.c_double, data.flatten()),
             "shared_partition": RawArray(ctypes.c_double, partition.flatten()),
@@ -196,7 +195,7 @@ class GathGevaModel(ClusteringModel):
         })
 
         @submittable
-        def compute_distances_task(cluster: int) -> np.ndarray:
+        def compute_distances_task(cluster: int) -> ndarray:
             import numpy as np
             from mst_clustering.math_utils import cluster_distances
 

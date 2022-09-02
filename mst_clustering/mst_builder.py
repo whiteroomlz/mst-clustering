@@ -1,7 +1,7 @@
 import numpy as np
 
-from numba import njit, prange
 from abc import ABC
+from numba import njit, prange
 
 from mst_clustering.cpp_adapters import SpanningForest
 
