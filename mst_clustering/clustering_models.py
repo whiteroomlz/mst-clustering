@@ -98,8 +98,10 @@ class ZahnModel(ClusteringModel):
                     worst_edge = bad_cluster_edges[max_weight_idx]
                 elif self.use_second_criterion and self._check_second_criterion(weights, max_weight_idx):
                     worst_edge = bad_cluster_edges[max_weight_idx]
-                elif self.use_third_criterion and (output := self._check_third_criterion(data, bad_cluster_edges)):
-                    worst_edge = output
+                elif self.use_third_criterion:
+                    output = self._check_third_criterion(data, bad_cluster_edges)
+                    if output:
+                        worst_edge = output
                 else:
                     break
 
@@ -147,7 +149,8 @@ class ZahnModel(ClusteringModel):
             right_fhv = fuzzy_hyper_volume(data, self.weighting_exp, right_cluster_ids, cluster_center)
 
             if not (left_fhv is math.inf or right_fhv is math.inf):
-                if (total_fhv := left_fhv + right_fhv) <= min_total_fhv:
+                total_fhv = left_fhv + right_fhv
+                if total_fhv <= min_total_fhv:
                     bad_edge_index = edge_index
                     min_total_fhv = total_fhv
 
