@@ -151,7 +151,7 @@ class ZahnModel(ClusteringModel):
                 total_hv = left_hv + right_hv
                 if total_hv <= min_total_hv:
                     bad_edge_index = edge_index
-                    min_total_fhv = total_hv
+                    min_total_hv = total_hv
 
             temp_forest.add_edge(cluster_edge.first_node, cluster_edge.second_node, cluster_edge.weight)
 
