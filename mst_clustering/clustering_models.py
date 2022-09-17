@@ -3,7 +3,6 @@ import ctypes
 import numpy as np
 
 from numpy import ndarray
-from decimal import Decimal
 from itertools import product
 from abc import ABC, abstractmethod
 from concurrent.futures import wait, ALL_COMPLETED
@@ -36,7 +35,7 @@ class ClusteringModel(ABC):
 
 class ZahnModel(ClusteringModel):
     cutting_cond: float
-    fhv_condition: float
+    hv_condition: float
     weighting_exp: float
     num_of_clusters: int
     use_first_criterion: bool
@@ -44,13 +43,13 @@ class ZahnModel(ClusteringModel):
     use_second_criterion: bool
     use_additional_criterion: bool
 
-    def __init__(self, cutting_condition=2.5, weighting_exponent=2, hv_condition=1e-4, num_of_clusters: int = -1,
+    def __init__(self, cutting_condition=2.5, weighting_exponent=2, hv_condition=1e-4, max_num_of_clusters: int = -1,
                  use_first_criterion: bool = True, use_second_criterion: bool = True,
                  use_third_criterion: bool = True, use_additional_criterion: bool = True):
         self.cutting_cond = cutting_condition
         self.weighting_exp = weighting_exponent
-        self.fhv_condition = hv_condition
-        self.num_of_clusters = num_of_clusters
+        self.hv_condition = hv_condition
+        self.num_of_clusters = max_num_of_clusters
         self.use_first_criterion = use_first_criterion
         self.use_second_criterion = use_second_criterion
         self.use_third_criterion = use_third_criterion
@@ -132,7 +131,7 @@ class ZahnModel(ClusteringModel):
         for cluster_edge in cluster_edges:
             temp_forest.add_edge(cluster_edge.first_node, cluster_edge.second_node, cluster_edge.weight)
 
-        min_total_fhv = math.inf
+        min_total_hv = math.inf
         for edge_index, cluster_edge in enumerate(cluster_edges):
             temp_forest.remove_edge(cluster_edge.first_node, cluster_edge.second_node)
 
@@ -147,13 +146,13 @@ class ZahnModel(ClusteringModel):
             right_hv = hyper_volume(data, self.weighting_exp, right_cluster_ids, cluster_center)
 
             if not (left_hv is math.inf or right_hv is math.inf):
-                if (total_fhv := left_hv + right_hv) <= min_total_fhv:
+                if (total_hv := left_hv + right_hv) <= min_total_hv:
                     bad_edge_index = edge_index
-                    min_total_fhv = total_fhv
+                    min_total_hv = total_hv
 
             temp_forest.add_edge(cluster_edge.first_node, cluster_edge.second_node, cluster_edge.weight)
 
-        return cluster_edges[bad_edge_index] if min_total_fhv > self.fhv_condition and min_total_fhv != math.inf \
+        return cluster_edges[bad_edge_index] if min_total_hv > self.hv_condition and min_total_hv != math.inf \
             else None
 
 
