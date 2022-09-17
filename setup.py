@@ -15,7 +15,7 @@ ext_modules = [
 
 setup(
     name="mst_clustering",
-    version='1.3',
+    version='1.4',
     description='Implementation of fuzzy clustering algorithms based on spanning trees',
     author='Nikita Borodin',
     author_email='borodinik.s@gmail.com',
