@@ -3,7 +3,6 @@ import ctypes
 import numpy as np
 
 from numpy import ndarray
-from decimal import Decimal
 from itertools import product
 from abc import ABC, abstractmethod
 from concurrent.futures import wait, ALL_COMPLETED
@@ -98,8 +97,10 @@ class ZahnModel(ClusteringModel):
                     worst_edge = bad_cluster_edges[max_weight_idx]
                 elif self.use_second_criterion and self._check_second_criterion(weights, max_weight_idx):
                     worst_edge = bad_cluster_edges[max_weight_idx]
-                elif self.use_third_criterion and (output := self._check_third_criterion(data, bad_cluster_edges)):
-                    worst_edge = output
+                elif self.use_third_criterion:
+                    output = self._check_third_criterion(data, bad_cluster_edges)
+                    if output:
+                        worst_edge = output
                 else:
                     break
 
@@ -132,7 +133,7 @@ class ZahnModel(ClusteringModel):
         for cluster_edge in cluster_edges:
             temp_forest.add_edge(cluster_edge.first_node, cluster_edge.second_node, cluster_edge.weight)
 
-        min_total_fhv = math.inf
+        min_total_hv = math.inf
         for edge_index, cluster_edge in enumerate(cluster_edges):
             temp_forest.remove_edge(cluster_edge.first_node, cluster_edge.second_node)
 
@@ -147,13 +148,14 @@ class ZahnModel(ClusteringModel):
             right_hv = hyper_volume(data, self.weighting_exp, right_cluster_ids, cluster_center)
 
             if not (left_hv is math.inf or right_hv is math.inf):
-                if (total_fhv := left_hv + right_hv) <= min_total_fhv:
+                total_hv = left_hv + right_hv
+                if total_hv <= min_total_hv:
                     bad_edge_index = edge_index
-                    min_total_fhv = total_fhv
+                    min_total_fhv = total_hv
 
             temp_forest.add_edge(cluster_edge.first_node, cluster_edge.second_node, cluster_edge.weight)
 
-        return cluster_edges[bad_edge_index] if min_total_fhv > self.fhv_condition and min_total_fhv != math.inf \
+        return cluster_edges[bad_edge_index] if min_total_hv > self.fhv_condition and min_total_hv != math.inf \
             else None
 
 
