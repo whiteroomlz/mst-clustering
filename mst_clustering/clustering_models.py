@@ -11,6 +11,7 @@ from mst_clustering.multiprocessing_tools import SharedMemoryPool, submittable
 from mst_clustering.cpp_adapters import SpanningForest, Edge
 from multiprocessing.sharedctypes import RawArray, RawValue
 from mst_clustering.math_utils import hyper_volume
+from sklearn.cluster import MiniBatchKMeans
 
 
 class ClusteringModel(ABC):
@@ -99,8 +100,17 @@ class ZahnModel(ClusteringModel):
                     worst_edge = bad_cluster_edges[max_weight_idx]
                 elif self.use_third_criterion and (output := self._check_third_criterion(data, bad_cluster_edges)):
                     worst_edge = output
-                else:
-                    break
+                elif self.use_additional_criterion:
+                    clf = MiniBatchKMeans(n_clusters=2, batch_size=512, random_state=0)
+                    labels = clf.fit_predict(bad_cluster_edges)
+
+                    mean_length_0 = np.mean(labels[labels == 0])
+                    mean_length_1 = np.mean(labels[labels != 0])
+                    bad_cluster_edges = labels[labels == 0] if mean_length_0 > mean_length_1 else labels[labels != 0]
+
+                    for edge in bad_cluster_edges:
+                        forest.remove_edge(edge.first_node, edge.second_node)
+                    continue
 
                 forest.remove_edge(worst_edge.first_node, worst_edge.second_node)
 

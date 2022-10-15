@@ -34,7 +34,7 @@ class Pipeline:
             self.__data = normalize(data.copy()) if use_normalization else data.copy()
 
         if spanning_forest is not None:
-            self.spanning_forest = copy.deepcopy(spanning_forest)
+            self.spanning_forest = spanning_forest
         elif self.spanning_forest is None:
             self.spanning_forest = MstBuilder.build(data)
 
