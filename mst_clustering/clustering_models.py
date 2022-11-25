@@ -111,6 +111,8 @@ class ZahnModel(ClusteringModel):
                     for edge in bad_cluster_edges:
                         forest.remove_edge(edge.first_node, edge.second_node)
                     continue
+                else:
+                    break
 
                 forest.remove_edge(worst_edge.first_node, worst_edge.second_node)
 
