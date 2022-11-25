@@ -61,9 +61,8 @@ void SpanningForest::getEdges(const int32_t root, py::list result) {
     std::unordered_set<std::shared_ptr<Edge>> edges;
     getTreeItems(root, &second_tree_nodes, &edges);
 
-    for (std::shared_ptr<Edge> edge : edges) {
-        result.append(
-            Edge(edge.get()->first_node, edge.get()->second_node, edge.get()->edge_weight));
+    for (const std::shared_ptr<Edge>& edge : edges) {
+        result.append(Edge(edge->first_node, edge->second_node, edge->edge_weight));
     }
 }
 
@@ -82,7 +81,7 @@ void SpanningForest::removeEdge(int32_t first_node, int32_t second_node) {
     auto first_values_range = edges_.equal_range(first_node);
     for (auto key_value = first_values_range.first; key_value != first_values_range.second;
          ++key_value) {
-        if ((*key_value).second.get()->second_node == second_node) {
+        if ((*key_value).second->second_node == second_node) {
             edges_.erase(key_value);
             break;
         }
@@ -91,7 +90,7 @@ void SpanningForest::removeEdge(int32_t first_node, int32_t second_node) {
     auto second_values_range = edges_.equal_range(second_node);
     for (auto key_value = second_values_range.first; key_value != second_values_range.second;
          ++key_value) {
-        if ((*key_value).second.get()->first_node == first_node) {
+        if ((*key_value).second->first_node == first_node) {
             edges_.erase(key_value);
             break;
         }
@@ -115,8 +114,8 @@ void SpanningForest::removeEdge(int32_t first_node, int32_t second_node) {
         dsu_weights_[node] = 1;
     }
 
-    for (const std::shared_ptr<Edge> edge : edges) {
-        dsuUnite(edge.get()->first_node, edge.get()->second_node);
+    for (const std::shared_ptr<Edge>& edge : edges) {
+        dsuUnite(edge->first_node, edge->second_node);
     }
 
     ++trees_count_;

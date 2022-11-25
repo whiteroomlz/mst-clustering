@@ -1,12 +1,10 @@
-import copy
-import numpy as np
-
 from typing import Iterator
+
+import numpy as np
 from sklearn.preprocessing import normalize
 
 from mst_clustering.clustering_models import ClusteringModel
-from mst_clustering.cpp_adapters import SpanningForest
-from mst_clustering.mst_builder import MstBuilder
+from mst_clustering.cpp_adapters import SpanningForest, MstBuilder, DistanceMeasure
 
 np.warnings.filterwarnings('ignore', category=np.VisibleDeprecationWarning)
 
@@ -28,15 +26,17 @@ class Pipeline:
         self.__fuzzy_noise_criterion = fuzzy_noise_criterion
         self.__min_partition = min_partition
 
-    def fit(self, data: np.ndarray = None, workers_count: int = 1, initial_partition: np.ndarray = None,
-            spanning_forest: SpanningForest = None, n_steps: int = None, use_normalization: bool = True):
+    def fit(self, data: np.ndarray = None, distance_measure: DistanceMeasure = DistanceMeasure.EUCLIDEAN,
+            workers_count: int = 1, initial_partition: np.ndarray = None, spanning_forest: SpanningForest = None,
+            n_steps: int = None, use_normalization: bool = True):
         if data is not None:
             self.__data = normalize(data.copy()) if use_normalization else data.copy()
+            self.__data = np.unique(data, axis=0)
 
         if spanning_forest is not None:
             self.spanning_forest = spanning_forest
         elif self.spanning_forest is None:
-            self.spanning_forest = MstBuilder.build(data)
+            self.spanning_forest = MstBuilder(data.tolist()).build(workers_count, distance_measure)
 
         partition = initial_partition
         self.noise = np.zeros(self.__data.shape[0])

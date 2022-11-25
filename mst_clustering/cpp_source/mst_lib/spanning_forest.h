@@ -27,7 +27,7 @@ public:
         }
     };
 
-    SpanningForest(const size_t size)
+    explicit SpanningForest(const size_t size)
         : roots_(std::vector<int32_t>(size)),
           dsu_weights_(std::vector<size_t>(size, 1)),
           trees_count_(size) {
@@ -38,13 +38,13 @@ public:
 
     bool isSpanningTree() const;
 
-    int32_t findRoot(const int32_t item);
+    int32_t findRoot(int32_t item);
 
     void getRoots(py::list result);
 
-    void getEdges(const int32_t root, py::list result);
+    void getEdges(int32_t root, py::list result);
 
-    void addEdge(const int32_t first_node, const int32_t second_node, const double edge_weight);
+    void addEdge(int32_t first_node, int32_t second_node, double edge_weight);
 
     void removeEdge(int32_t first_node, int32_t second_node);
 
@@ -58,7 +58,7 @@ private:
     size_t trees_count_;
 
 private:
-    void dsuUnite(const int32_t first_node, const int32_t second_node);
+    void dsuUnite(int32_t first_node, int32_t second_node);
 
     void getTreeItems(int32_t node, std::unordered_set<int32_t>* unique_nodes,
                       std::unordered_set<std::shared_ptr<Edge>>* edges) const;

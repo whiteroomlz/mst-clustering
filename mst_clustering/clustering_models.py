@@ -139,7 +139,7 @@ class ZahnModel(ClusteringModel):
     def _check_third_criterion(self, data: ndarray, cluster_edges: list) -> Edge or None:
         bad_edge_index = None
 
-        temp_forest = SpanningForest(data.shape[0])
+        temp_forest = SpanningForest(size=data.shape[0])
         for cluster_edge in cluster_edges:
             temp_forest.add_edge(cluster_edge.first_node, cluster_edge.second_node, cluster_edge.weight)
 

@@ -1,4 +1,4 @@
-import spanning_forest
+import mst_lib
 
 
 class Edge(object):
@@ -6,17 +6,20 @@ class Edge(object):
     second_node: int
     weight: float
 
-    def __init__(self, spanning_forest_edge: spanning_forest.Edge):
+    def __init__(self, spanning_forest_edge: mst_lib.Edge):
         self.first_node = spanning_forest_edge.first_node
         self.second_node = spanning_forest_edge.second_node
         self.weight = spanning_forest_edge.edge_weight
 
 
 class SpanningForest(object):
-    __spanning_forest: spanning_forest.SpanningForest
+    __spanning_forest: mst_lib.SpanningForest
 
-    def __init__(self, size: int):
-        self.__spanning_forest = spanning_forest.SpanningForest(size)
+    def __init__(self, size: int = 0, spanning_forest: mst_lib.SpanningForest = None):
+        if spanning_forest is None:
+            self.__spanning_forest = mst_lib.SpanningForest(size)
+        else:
+            self.__spanning_forest = spanning_forest
 
     @property
     def is_spanning_tree(self) -> bool:
