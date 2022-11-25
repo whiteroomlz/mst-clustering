@@ -42,11 +42,11 @@ class ZahnModel(ClusteringModel):
     use_first_criterion: bool
     use_third_criterion: bool
     use_second_criterion: bool
-    use_additional_criterion: bool
+    use_special_criterion: bool
 
     def __init__(self, cutting_condition=2.5, weighting_exponent=2, hv_condition=1e-4, max_num_of_clusters: int = -1,
                  use_first_criterion: bool = True, use_second_criterion: bool = True,
-                 use_third_criterion: bool = True, use_additional_criterion: bool = True):
+                 use_third_criterion: bool = True, use_special_criterion: bool = True):
         self.cutting_cond = cutting_condition
         self.weighting_exp = weighting_exponent
         self.hv_condition = hv_condition
@@ -54,7 +54,7 @@ class ZahnModel(ClusteringModel):
         self.use_first_criterion = use_first_criterion
         self.use_second_criterion = use_second_criterion
         self.use_third_criterion = use_third_criterion
-        self.use_additional_criterion = use_additional_criterion
+        self.use_special_criterion = use_special_criterion
 
     def __call__(self, data: ndarray, forest: SpanningForest, workers: int = 1, partition: ndarray = None) -> \
             ndarray:
@@ -64,57 +64,61 @@ class ZahnModel(ClusteringModel):
             "shared_weighting_exponent": RawValue(ctypes.c_double, self.weighting_exp)
         })
 
-        @submittable
-        def fuzzy_hyper_volume_task(cluster_ids: ndarray, cluster_center: ndarray) -> float:
-            import numpy as np
-            from mst_clustering.math_utils import hyper_volume
+        if self.use_special_criterion:
+            clustering = MiniBatchKMeans(n_clusters=2, batch_size=512, random_state=0)
+            all_edges = np.array(forest.get_edges(0))
+            edges_lengths = np.fromiter(map(lambda edge: edge.weight, all_edges), dtype=np.float64)
+            labels = clustering.fit_predict(edges_lengths[:, np.newaxis])
 
-            shared_memory = SharedMemoryPool.get_shared_memory()
-            shared_data = shared_memory["shared_data"]
-            shared_rows_count = shared_memory["shared_rows_count"]
-            shared_weighting_exponent = shared_memory["shared_weighting_exponent"]
+            mean_length_0 = np.mean(edges_lengths[labels == 0])
+            mean_length_1 = np.mean(edges_lengths[labels != 0])
+            bad_cluster_edges = all_edges[labels == 0] if mean_length_0 > mean_length_1 else all_edges[labels != 0]
 
-            data = np.frombuffer(shared_data).reshape((shared_rows_count.value, -1))
-            weighting_exponent = shared_weighting_exponent.value
-            return hyper_volume(data, weighting_exponent, cluster_ids, cluster_center)
+            for edge in bad_cluster_edges:
+                forest.remove_edge(edge.first_node, edge.second_node)
+        else:
+            @submittable
+            def fuzzy_hyper_volume_task(cluster_ids: ndarray, cluster_center: ndarray) -> float:
+                import numpy as np
+                from mst_clustering.math_utils import hyper_volume
 
-        with SharedMemoryPool(max_workers=workers, shared_memory_dict=shared_memory_dict) as pool:
-            while self._check_num_of_clusters(forest):
-                info = map(lambda c: ZahnModel.get_cluster_info(data, forest, c), range(forest.size))
-                futures = list(pool.submit(fuzzy_hyper_volume_task, ids, center) for ids, _, center in info)
+                shared_memory = SharedMemoryPool.get_shared_memory()
+                shared_data = shared_memory["shared_data"]
+                shared_rows_count = shared_memory["shared_rows_count"]
+                shared_weighting_exponent = shared_memory["shared_weighting_exponent"]
 
-                wait(futures, return_when=ALL_COMPLETED)
+                data = np.frombuffer(shared_data).reshape((shared_rows_count.value, -1))
+                weighting_exponent = shared_weighting_exponent.value
+                return hyper_volume(data, weighting_exponent, cluster_ids, cluster_center)
 
-                volumes = np.fromiter(map(lambda future: future.result(), futures), dtype=np.float64)
-                volumes_without_noise = np.where(volumes == math.inf, -1, volumes)
+            with SharedMemoryPool(max_workers=workers, shared_memory_dict=shared_memory_dict) as pool:
+                while self._check_num_of_clusters(forest):
+                    info = map(lambda c: ZahnModel.get_cluster_info(data, forest, c), range(forest.size))
+                    futures = list(pool.submit(fuzzy_hyper_volume_task, ids, center) for ids, _, center in info)
 
-                bad_cluster_edges = forest.get_edges(forest.get_roots()[np.argmax(volumes_without_noise)])
+                    wait(futures, return_when=ALL_COMPLETED)
 
-                weights = np.fromiter(map(lambda edge: edge.weight, bad_cluster_edges), dtype=np.float64)
-                max_weight_idx = int(np.argmax(weights))
-                max_weight = weights[max_weight_idx]
+                    volumes = np.fromiter(map(lambda future: future.result(), futures), dtype=np.float64)
+                    volumes_without_noise = np.where(volumes == math.inf, -1, volumes)
 
-                if self.use_first_criterion and self._check_first_criterion(data, forest, max_weight):
-                    worst_edge = bad_cluster_edges[max_weight_idx]
-                elif self.use_second_criterion and self._check_second_criterion(weights, max_weight_idx):
-                    worst_edge = bad_cluster_edges[max_weight_idx]
-                elif self.use_third_criterion and (output := self._check_third_criterion(data, bad_cluster_edges)):
-                    worst_edge = output
-                elif self.use_additional_criterion:
-                    clf = MiniBatchKMeans(n_clusters=2, batch_size=512, random_state=0)
-                    labels = clf.fit_predict(bad_cluster_edges)
+                    bad_cluster_edges = forest.get_edges(forest.get_roots()[np.argmax(volumes_without_noise)])
 
-                    mean_length_0 = np.mean(labels[labels == 0])
-                    mean_length_1 = np.mean(labels[labels != 0])
-                    bad_cluster_edges = labels[labels == 0] if mean_length_0 > mean_length_1 else labels[labels != 0]
+                    weights = np.fromiter(map(lambda edge: edge.weight, bad_cluster_edges), dtype=np.float64)
+                    max_weight_idx = int(np.argmax(weights))
+                    max_weight = weights[max_weight_idx]
 
-                    for edge in bad_cluster_edges:
-                        forest.remove_edge(edge.first_node, edge.second_node)
-                    continue
-                else:
-                    break
+                    if self.use_first_criterion and self._check_first_criterion(data, forest, max_weight):
+                        worst_edge = bad_cluster_edges[max_weight_idx]
+                    elif self.use_second_criterion and self._check_second_criterion(weights, max_weight_idx):
+                        worst_edge = bad_cluster_edges[max_weight_idx]
+                    elif self.use_third_criterion:
+                        output = self._check_third_criterion(data, bad_cluster_edges)
+                        if output:
+                            worst_edge = output
+                    else:
+                        break
 
-                forest.remove_edge(worst_edge.first_node, worst_edge.second_node)
+                    forest.remove_edge(worst_edge.first_node, worst_edge.second_node)
 
         partition = np.zeros((forest.size, data.shape[0]))
         for cluster in range(forest.size):
@@ -158,7 +162,8 @@ class ZahnModel(ClusteringModel):
             right_hv = hyper_volume(data, self.weighting_exp, right_cluster_ids, cluster_center)
 
             if not (left_hv is math.inf or right_hv is math.inf):
-                if (total_hv := left_hv + right_hv) <= min_total_hv:
+                total_hv = left_hv + right_hv
+                if total_hv <= min_total_hv:
                     bad_edge_index = edge_index
                     min_total_hv = total_hv
 
