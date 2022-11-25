@@ -6,7 +6,10 @@ cpp_args = ['-std=c++2a']
 ext_modules = [
     Extension(
         'spanning_forest',
-        sources=['mst_clustering/cpp_source/spanning_forest/spanning_forest.cpp'],
+        sources=[
+            'mst_clustering/cpp_source/spanning_forest/spanning_forest.cpp',
+            'mst_clustering/cpp_source/spanning_forest/pybind11_compile.cpp',
+        ],
         include_dirs=[pybind11.get_include()],
         language='c++',
         extra_compile_args=cpp_args,
