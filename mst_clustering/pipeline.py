@@ -28,7 +28,7 @@ class Pipeline:
 
     def fit(self, data: np.ndarray = None, distance_measure: DistanceMeasure = DistanceMeasure.EUCLIDEAN,
             workers_count: int = 1, initial_partition: np.ndarray = None, spanning_forest: SpanningForest = None,
-            n_steps: int = None, use_normalization: bool = True):
+            n_steps: int = None, use_normalization: bool = True, save_steps: bool = False, step_title: str = "step"):
         if data is not None:
             self.__data = normalize(data.copy()) if use_normalization else data.copy()
             self.__data = np.unique(data, axis=0)
@@ -44,9 +44,11 @@ class Pipeline:
         partition = initial_partition
         self.noise = np.zeros(self.__data.shape[0])
 
-        for _ in range(n_steps if n_steps is not None else len(self.clustering_models)):
+        for step in range(n_steps if n_steps is not None else len(self.clustering_models)):
             try:
                 model = next(self.__models_iterator)
+                if save_steps:
+                    self.spanning_forest.save(f"{step_title}#{step}")
             except StopIteration:
                 break
 

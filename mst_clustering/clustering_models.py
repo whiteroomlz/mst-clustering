@@ -64,19 +64,7 @@ class ZahnModel(ClusteringModel):
             "shared_weighting_exponent": RawValue(ctypes.c_double, self.weighting_exp)
         })
 
-        if self.use_special_criterion:
-            clustering = MiniBatchKMeans(n_clusters=2, batch_size=512, random_state=0)
-            all_edges = np.array(forest.get_edges(0))
-            edges_lengths = np.fromiter(map(lambda edge: edge.weight, all_edges), dtype=np.float64)
-            labels = clustering.fit_predict(edges_lengths[:, np.newaxis])
-
-            mean_length_0 = np.mean(edges_lengths[labels == 0])
-            mean_length_1 = np.mean(edges_lengths[labels != 0])
-            bad_cluster_edges = all_edges[labels == 0] if mean_length_0 > mean_length_1 else all_edges[labels != 0]
-
-            for edge in bad_cluster_edges:
-                forest.remove_edge(edge.first_node, edge.second_node)
-        else:
+        if not self.use_special_criterion:
             @submittable
             def fuzzy_hyper_volume_task(cluster_ids: ndarray, cluster_center: ndarray) -> float:
                 import numpy as np
@@ -112,13 +100,15 @@ class ZahnModel(ClusteringModel):
                     elif self.use_second_criterion and self._check_second_criterion(weights, max_weight_idx):
                         worst_edge = bad_cluster_edges[max_weight_idx]
                     elif self.use_third_criterion:
-                        output = self._check_third_criterion(data, bad_cluster_edges)
-                        if output:
-                            worst_edge = output
+                        worst_edge = self._check_third_criterion(data, bad_cluster_edges)
+                        if worst_edge is None:
+                            break
                     else:
                         break
 
                     forest.remove_edge(worst_edge.first_node, worst_edge.second_node)
+        else:
+            self._apply_special_criterion(forest, workers)
 
         partition = np.zeros((forest.size, data.shape[0]))
         for cluster in range(forest.size):
@@ -171,6 +161,19 @@ class ZahnModel(ClusteringModel):
 
         return cluster_edges[bad_edge_index] if min_total_hv > self.hv_condition and min_total_hv != math.inf \
             else None
+
+    def _apply_special_criterion(self, forest: SpanningForest, workers: int = 1):
+        clustering = MiniBatchKMeans(n_clusters=2, batch_size=256 * workers, random_state=0)
+        all_edges = np.array(forest.get_edges(0))
+        edges_lengths = np.fromiter(map(lambda edge: edge.weight, all_edges), dtype=np.float64)
+        labels = clustering.fit_predict(edges_lengths[:, np.newaxis])
+
+        mean_length_0 = np.mean(edges_lengths[labels == 0])
+        mean_length_1 = np.mean(edges_lengths[labels != 0])
+        bad_cluster_edges = all_edges[labels == 0] if mean_length_0 > mean_length_1 else all_edges[labels != 0]
+
+        for edge in bad_cluster_edges:
+            forest.remove_edge(edge.first_node, edge.second_node)
 
 
 class GathGevaModel(ClusteringModel):

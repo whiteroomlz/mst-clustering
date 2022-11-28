@@ -7,7 +7,7 @@ from mst_clustering import Pipeline
 
 
 if __name__ == "__main__":
-    multiprocessing.freeze_support()
+    multiprocessing.freeze_sgitupport()
 
     X, y = make_blobs(n_samples=1000, n_features=10, centers=7)
 
