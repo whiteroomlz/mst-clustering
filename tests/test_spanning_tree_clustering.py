@@ -1,4 +1,3 @@
-import math
 import multiprocessing
 
 from mst_clustering.clustering_models import ZahnModel

@@ -103,7 +103,7 @@ class ZahnModel(ClusteringModel):
                 if not worst_edge_found and self.use_second_criterion:
                     if self.__kdtree is None:
                         self.__kdtree = KDTree(data)
-                    index = self._check_second_criterion(data, all_edges, weights)
+                    index = self._check_second_criterion(data, all_edges, weights, workers=workers)
                     if index != -1:
                         worst_edge = bad_cluster_edges[index]
                         worst_edge_found = True
@@ -130,16 +130,18 @@ class ZahnModel(ClusteringModel):
         criterion = self.cutting_cond * sum(map(lambda edge: edge.weight, all_edges)) / (data.shape[0] - 1)
         return edge_weight >= criterion
 
-    def _check_second_criterion(self, data: ndarray, all_edges: list, edges_weights: ndarray) -> int:
+    def _check_second_criterion(self, data: ndarray, all_edges: list, edges_weights: ndarray, workers: int) -> int:
         sorted_indices = np.argsort(edges_weights)[::-1]
         for index in sorted_indices:
             first_node = all_edges[index].first_node
             second_node = all_edges[index].second_node
-            first_neighbours = self.__kdtree.query_ball_point(x=data[first_node], r=edges_weights[index])
+            first_neighbours = self.__kdtree.query_ball_point(x=data[first_node], r=edges_weights[index],
+                                                              workers=workers)
             first_edges = list(filter(
                 lambda edge: ((edge.first_node in first_neighbours) or (edge.second_node in first_neighbours)) and (
                         edge.first_node != first_node and edge.second_node != second_node), all_edges))
-            second_neighbours = self.__kdtree.query_ball_point(x=data[second_node], r=edges_weights[index])
+            second_neighbours = self.__kdtree.query_ball_point(x=data[second_node], r=edges_weights[index],
+                                                               workers=workers)
             second_edges = list(filter(
                 lambda edge: ((edge.first_node in second_neighbours) or (edge.second_node in second_neighbours)) and (
                         edge.first_node != first_node and edge.second_node != second_node), all_edges))
