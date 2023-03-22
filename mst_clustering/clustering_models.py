@@ -4,6 +4,7 @@ import numpy as np
 
 from numpy import ndarray
 from itertools import product
+from scipy.spatial import KDTree
 from abc import ABC, abstractmethod
 from concurrent.futures import wait, ALL_COMPLETED
 
@@ -11,7 +12,6 @@ from mst_clustering.multiprocessing_tools import SharedMemoryPool, submittable
 from mst_clustering.cpp_adapters import SpanningForest, Edge
 from multiprocessing.sharedctypes import RawArray, RawValue
 from mst_clustering.math_utils import hyper_volume
-from sklearn.cluster import MiniBatchKMeans
 
 
 class ClusteringModel(ABC):
@@ -43,6 +43,8 @@ class ZahnModel(ClusteringModel):
     use_third_criterion: bool
     use_second_criterion: bool
 
+    __kdtree: KDTree or None
+
     def __init__(self, cutting_condition=2.5, weighting_exponent=2, hv_condition=1e-4, max_num_of_clusters: int = -1,
                  use_first_criterion: bool = True, use_second_criterion: bool = True,
                  use_third_criterion: bool = True):
@@ -53,6 +55,7 @@ class ZahnModel(ClusteringModel):
         self.use_first_criterion = use_first_criterion
         self.use_second_criterion = use_second_criterion
         self.use_third_criterion = use_third_criterion
+        self.__kdtree = None
 
     def __call__(self, data: ndarray, forest: SpanningForest, workers: int = 1, partition: ndarray = None) -> \
             ndarray:
@@ -88,19 +91,27 @@ class ZahnModel(ClusteringModel):
 
                 bad_cluster_edges = forest.get_edges(forest.get_roots()[np.argmax(volumes_without_noise)])
 
+                all_edges = forest.get_edges(forest.get_roots()[0])
                 weights = np.fromiter(map(lambda edge: edge.weight, bad_cluster_edges), dtype=np.float64)
                 max_weight_idx = int(np.argmax(weights))
                 max_weight = weights[max_weight_idx]
 
-                if self.use_first_criterion and self._check_first_criterion(data, forest, max_weight):
+                worst_edge_found = False
+                if self.use_first_criterion and self._check_first_criterion(data, all_edges, max_weight):
                     worst_edge = bad_cluster_edges[max_weight_idx]
-                elif self.use_second_criterion and self._check_second_criterion(weights, max_weight_idx):
-                    worst_edge = bad_cluster_edges[max_weight_idx]
-                elif self.use_third_criterion:
+                    worst_edge_found = True
+                if not worst_edge_found and self.use_second_criterion:
+                    if self.__kdtree is None:
+                        self.__kdtree = KDTree(data)
+                    index = self._check_second_criterion(data, all_edges, weights)
+                    if index != -1:
+                        worst_edge = bad_cluster_edges[index]
+                        worst_edge_found = True
+                if not worst_edge_found and self.use_third_criterion:
                     worst_edge = self._check_third_criterion(data, bad_cluster_edges)
-                    if worst_edge is None:
-                        break
-                else:
+                    if worst_edge is not None:
+                        worst_edge_found = True
+                if not worst_edge_found:
                     break
 
                 forest.remove_edge(worst_edge.first_node, worst_edge.second_node)
@@ -112,18 +123,36 @@ class ZahnModel(ClusteringModel):
 
         return partition
 
-    def _check_num_of_clusters(self, forest) -> bool:
+    def _check_num_of_clusters(self, forest: SpanningForest) -> bool:
         return self.num_of_clusters == -1 or forest.size < self.num_of_clusters
 
-    def _check_first_criterion(self, data: ndarray, forest: SpanningForest, edge_weight: float) -> bool:
-        all_edges = forest.get_edges(forest.get_roots()[0])
+    def _check_first_criterion(self, data: ndarray, all_edges: list, edge_weight: float) -> bool:
         criterion = self.cutting_cond * sum(map(lambda edge: edge.weight, all_edges)) / (data.shape[0] - 1)
         return edge_weight >= criterion
 
-    def _check_second_criterion(self, edges_weights: ndarray, edge_index: int) -> bool:
-        weight = edges_weights[edge_index]
-        edges_weights = np.delete(edges_weights, edge_index)
-        return weight / np.mean(edges_weights) >= self.cutting_cond
+    def _check_second_criterion(self, data: ndarray, all_edges: list, edges_weights: ndarray) -> int:
+        sorted_indices = np.argsort(edges_weights)[::-1]
+        for index in sorted_indices:
+            first_node = all_edges[index].first_node
+            second_node = all_edges[index].second_node
+            first_neighbours = self.__kdtree.query_ball_point(x=data[first_node], r=edges_weights[index])
+            first_edges = list(filter(
+                lambda edge: ((edge.first_node in first_neighbours) or (edge.second_node in first_neighbours)) and (
+                        edge.first_node != first_node and edge.second_node != second_node), all_edges))
+            second_neighbours = self.__kdtree.query_ball_point(x=data[second_node], r=edges_weights[index])
+            second_edges = list(filter(
+                lambda edge: ((edge.first_node in second_neighbours) or (edge.second_node in second_neighbours)) and (
+                        edge.first_node != first_node and edge.second_node != second_node), all_edges))
+            first_edges.extend(second_edges)
+
+            weight = edges_weights[index]
+            if len(first_edges) < 2:
+                continue
+            criterion = self.cutting_cond * sum(map(lambda edge: edge.weight, first_edges)) / (len(first_edges) - 1)
+            if weight >= criterion:
+                return index
+
+        return -1
 
     def _check_third_criterion(self, data: ndarray, cluster_edges: list) -> Edge or None:
         bad_edge_index = None
