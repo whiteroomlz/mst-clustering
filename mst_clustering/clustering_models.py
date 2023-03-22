@@ -130,11 +130,12 @@ class ZahnModel(ClusteringModel):
         criterion = self.cutting_cond * sum(map(lambda edge: edge.weight, all_edges)) / (data.shape[0] - 1)
         return edge_weight >= criterion
 
-    def _check_second_criterion(self, data: ndarray, all_edges: list, edges_weights: ndarray, workers: int) -> int:
+    def _check_second_criterion(self, data: ndarray, all_edges: list, bad_cluster_edges: list, edges_weights: ndarray,
+                                workers: int) -> int:
         sorted_indices = np.argsort(edges_weights)[::-1]
         for index in sorted_indices:
-            first_node = all_edges[index].first_node
-            second_node = all_edges[index].second_node
+            first_node = bad_cluster_edges[index].first_node
+            second_node = bad_cluster_edges[index].second_node
             first_neighbours = self.__kdtree.query_ball_point(x=data[first_node], r=edges_weights[index],
                                                               workers=workers)
             first_edges = list(filter(
