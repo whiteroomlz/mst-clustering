@@ -57,32 +57,17 @@ class ZahnModel(ClusteringModel):
         self.use_third_criterion = use_third_criterion
         self.__kdtree = None
 
-    def __call__(self, data: ndarray, forest: SpanningForest, workers: int = 1, partition: ndarray = None) -> \
-            ndarray:
+    def __call__(self, data: ndarray, forest: SpanningForest, workers: int = 1, partition: ndarray = None) -> ndarray:
         shared_memory_dict = dict({
             "shared_data": RawArray(ctypes.c_double, data.flatten()),
             "shared_rows_count": RawValue(ctypes.c_int32, data.shape[0]),
             "shared_weighting_exponent": RawValue(ctypes.c_double, self.weighting_exp)
         })
 
-        @submittable
-        def fuzzy_hyper_volume_task(cluster_ids: ndarray, cluster_center: ndarray) -> float:
-            import numpy as np
-            from mst_clustering.math_utils import hyper_volume
-
-            shared_memory = SharedMemoryPool.get_shared_memory()
-            shared_data = shared_memory["shared_data"]
-            shared_rows_count = shared_memory["shared_rows_count"]
-            shared_weighting_exponent = shared_memory["shared_weighting_exponent"]
-
-            data = np.frombuffer(shared_data).reshape((shared_rows_count.value, -1))
-            weighting_exponent = shared_weighting_exponent.value
-            return hyper_volume(data, weighting_exponent, cluster_ids, cluster_center)
-
         with SharedMemoryPool(max_workers=workers, shared_memory_dict=shared_memory_dict) as pool:
             while self._check_num_of_clusters(forest):
                 info = map(lambda c: ZahnModel.get_cluster_info(data, forest, c), range(forest.size))
-                futures = list(pool.submit(fuzzy_hyper_volume_task, ids, center) for ids, _, center in info)
+                futures = list(pool.submit(ZahnModel.__fuzzy_hyper_volume_task, ids, center) for ids, _, center in info)
 
                 wait(futures, return_when=ALL_COMPLETED)
 
@@ -103,7 +88,7 @@ class ZahnModel(ClusteringModel):
                 if not worst_edge_found and self.use_second_criterion:
                     if self.__kdtree is None:
                         self.__kdtree = KDTree(data)
-                    index = self._check_second_criterion(data, all_edges, weights, workers=workers)
+                    index = self._check_second_criterion(data, all_edges, bad_cluster_edges, weights, workers=workers)
                     if index != -1:
                         worst_edge = bad_cluster_edges[index]
                         worst_edge_found = True
@@ -189,6 +174,23 @@ class ZahnModel(ClusteringModel):
         return cluster_edges[bad_edge_index] if min_total_hv > self.hv_condition and min_total_hv != math.inf \
             else None
 
+    @staticmethod
+    @submittable
+    def __fuzzy_hyper_volume_task(cluster_ids: ndarray, cluster_center: ndarray) -> float:
+        import numpy as np
+        from mst_clustering.math_utils import hyper_volume
+
+        shared_memory = SharedMemoryPool.get_shared_memory()
+        shared_data = shared_memory["shared_data"]
+        shared_rows_count = shared_memory["shared_rows_count"]
+        shared_weighting_exponent = shared_memory["shared_weighting_exponent"]
+
+        data = np.frombuffer(shared_data).reshape((shared_rows_count.value, -1))
+        weighting_exponent = shared_weighting_exponent.value
+        volume = hyper_volume(data, weighting_exponent, cluster_ids, cluster_center)
+
+        return volume
+
 
 class GathGevaModel(ClusteringModel):
     termination_tolerance: float
@@ -236,25 +238,8 @@ class GathGevaModel(ClusteringModel):
             "shared_weighting_exponent": RawValue(ctypes.c_double, self.weighting_exp)
         })
 
-        @submittable
-        def compute_distances_task(cluster: int) -> ndarray:
-            import numpy as np
-            from mst_clustering.math_utils import cluster_ln_distances
-
-            shared_memory = SharedMemoryPool.get_shared_memory()
-            shared_data = shared_memory["shared_data"]
-            shared_partition = shared_memory["shared_partition"]
-            shared_rows_count = shared_memory["shared_rows_count"]
-            shared_clusters_count = shared_memory["shared_clusters_count"]
-            shared_weighting_exponent = shared_memory["shared_weighting_exponent"]
-
-            data = np.frombuffer(shared_data).reshape((shared_rows_count.value, -1))
-            weighting_exponent = shared_weighting_exponent.value
-            partition = np.frombuffer(shared_partition).reshape((shared_clusters_count.value, -1))
-            return cluster_ln_distances(data, weighting_exponent, partition, cluster)
-
         with SharedMemoryPool(max_workers=workers, shared_memory_dict=shared_memory_dict) as pool:
-            futures = [pool.submit(compute_distances_task, cluster) for cluster in non_noise_clusters]
+            futures = [pool.submit(GathGevaModel.__compute_distances_task, cluster) for cluster in non_noise_clusters]
 
             wait(futures, return_when=ALL_COMPLETED)
 
@@ -262,3 +247,23 @@ class GathGevaModel(ClusteringModel):
             distance_matrix[non_noise_clusters] = list(map(lambda future: future.result(), futures))
 
         return distance_matrix
+
+    @staticmethod
+    @submittable
+    def __compute_distances_task(cluster: int) -> ndarray:
+        import numpy as np
+        from mst_clustering.math_utils import cluster_ln_distances
+
+        shared_memory = SharedMemoryPool.get_shared_memory()
+        shared_data = shared_memory["shared_data"]
+        shared_partition = shared_memory["shared_partition"]
+        shared_rows_count = shared_memory["shared_rows_count"]
+        shared_clusters_count = shared_memory["shared_clusters_count"]
+        shared_weighting_exponent = shared_memory["shared_weighting_exponent"]
+
+        data = np.frombuffer(shared_data).reshape((shared_rows_count.value, -1))
+        weighting_exponent = shared_weighting_exponent.value
+        partition = np.frombuffer(shared_partition).reshape((shared_clusters_count.value, -1))
+        ln_distances = cluster_ln_distances(data, weighting_exponent, partition, cluster)
+
+        return ln_distances
