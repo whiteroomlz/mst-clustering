@@ -2,36 +2,34 @@ import math
 import ctypes
 import numpy as np
 
-from numpy import ndarray
 from itertools import product
+from operator import itemgetter
 from scipy.spatial import KDTree
+from numpy import ndarray as ndarr
 from abc import ABC, abstractmethod
 from concurrent.futures import wait, ALL_COMPLETED
 
 from mst_clustering.multiprocessing_tools import SharedMemoryPool, submittable
-from mst_clustering.cpp_adapters import SpanningForest, Edge
 from multiprocessing.sharedctypes import RawArray, RawValue
-from mst_clustering.math_utils import hyper_volume
+from mst_clustering.cpp_adapters import SpanningForest
 
 
 class ClusteringModel(ABC):
     @abstractmethod
-    def __call__(self, data: ndarray, forest: SpanningForest, workers: int = 1, partition: ndarray = None) -> ndarray:
+    def __call__(self, data: ndarr, forest: SpanningForest, workers: int = 1, partition: ndarr = None) -> ndarr:
         pass
 
     @staticmethod
-    def get_cluster_info(data: ndarray, forest: SpanningForest, cluster_idx: int) -> (ndarray, list, ndarray):
+    def get_cluster_info(data: ndarr, forest: SpanningForest, cluster_idx: int) -> (ndarr, ndarr):
         root = forest.get_roots()[cluster_idx]
-        cluster_edges = forest.get_edges(root)
+        cluster_ids, _ = forest.get_tree_info(root)
 
-        if not cluster_edges:
-            cluster_ids = np.array([root])
-            cluster_center = data[cluster_ids.squeeze()]
+        if len(cluster_ids) == 1:
+            cluster_center = data[cluster_ids[0]]
         else:
-            cluster_ids = np.unique(list(map(lambda edge: [edge.first_node, edge.second_node], cluster_edges)))
             cluster_center = np.mean(data[cluster_ids], axis=0)
 
-        return cluster_ids, cluster_edges, cluster_center
+        return cluster_ids, cluster_center
 
 
 class ZahnModel(ClusteringModel):
@@ -46,8 +44,7 @@ class ZahnModel(ClusteringModel):
     __kdtree: KDTree or None
 
     def __init__(self, cutting_condition=2.5, weighting_exponent=2, hv_condition=1e-4, max_num_of_clusters: int = -1,
-                 use_first_criterion: bool = True, use_second_criterion: bool = True,
-                 use_third_criterion: bool = True):
+                 use_first_criterion: bool = True, use_second_criterion: bool = True, use_third_criterion: bool = True):
         self.cutting_cond = cutting_condition
         self.weighting_exp = weighting_exponent
         self.hv_condition = hv_condition
@@ -55,9 +52,12 @@ class ZahnModel(ClusteringModel):
         self.use_first_criterion = use_first_criterion
         self.use_second_criterion = use_second_criterion
         self.use_third_criterion = use_third_criterion
+
         self.__kdtree = None
 
-    def __call__(self, data: ndarray, forest: SpanningForest, workers: int = 1, partition: ndarray = None) -> ndarray:
+    def __call__(self, data: ndarr, forest: SpanningForest, workers: int = 1, partition: ndarr = None) -> ndarr:
+        all_edges = dict(map(lambda edge: (edge.nodes(), edge.weight), forest.get_tree_info(*forest.get_roots())[1]))
+
         shared_memory_dict = dict({
             "shared_data": RawArray(ctypes.c_double, data.flatten()),
             "shared_rows_count": RawValue(ctypes.c_int32, data.shape[0]),
@@ -67,43 +67,33 @@ class ZahnModel(ClusteringModel):
         with SharedMemoryPool(max_workers=workers, shared_memory_dict=shared_memory_dict) as pool:
             while self._check_num_of_clusters(forest):
                 info = map(lambda c: ZahnModel.get_cluster_info(data, forest, c), range(forest.size))
-                futures = list(pool.submit(ZahnModel.__fuzzy_hyper_volume_task, ids, center) for ids, _, center in info)
-
+                futures = list(pool.submit(ZahnModel.__fuzzy_hyper_volume_task, ids, center) for ids, center in info)
                 wait(futures, return_when=ALL_COMPLETED)
 
                 volumes = np.fromiter(map(lambda future: future.result(), futures), dtype=np.float64)
                 volumes_without_noise = np.where(volumes == math.inf, -1, volumes)
+                bad_cluster = np.argmax(volumes_without_noise)
+                cluster_edges = list(
+                    map(lambda edge: edge.nodes(), forest.get_tree_info(forest.get_roots()[bad_cluster])[1]))
 
-                bad_cluster_edges = forest.get_edges(forest.get_roots()[np.argmax(volumes_without_noise)])
-
-                all_edges = forest.get_edges(forest.get_roots()[0])
-                weights = np.fromiter(map(lambda edge: edge.weight, bad_cluster_edges), dtype=np.float64)
-                max_weight_idx = int(np.argmax(weights))
-                max_weight = weights[max_weight_idx]
-
-                worst_edge_found = False
-                if self.use_first_criterion and self._check_first_criterion(data, all_edges, max_weight):
-                    worst_edge = bad_cluster_edges[max_weight_idx]
-                    worst_edge_found = True
-                if not worst_edge_found and self.use_second_criterion:
+                bad_edge_found = False
+                if self.use_first_criterion:
+                    bad_edge_found, bad_edge = self._apply_first_criterion(data, all_edges, cluster_edges)
+                if not bad_edge_found and self.use_second_criterion:
                     if self.__kdtree is None:
                         self.__kdtree = KDTree(data)
-                    index = self._check_second_criterion(data, all_edges, bad_cluster_edges, weights, workers=workers)
-                    if index != -1:
-                        worst_edge = bad_cluster_edges[index]
-                        worst_edge_found = True
-                if not worst_edge_found and self.use_third_criterion:
-                    worst_edge = self._check_third_criterion(data, bad_cluster_edges)
-                    if worst_edge is not None:
-                        worst_edge_found = True
-                if not worst_edge_found:
+                    bad_edge_found, bad_edge = self._apply_second_criterion(data, all_edges, cluster_edges, workers)
+                if not bad_edge_found and self.use_third_criterion:
+                    bad_edge_found, bad_edge = self._apply_third_criterion(data, all_edges, cluster_edges, forest, pool)
+                if not bad_edge_found:
                     break
 
-                forest.remove_edge(worst_edge.first_node, worst_edge.second_node)
+                forest.remove_edge(*bad_edge)
+                all_edges.pop(bad_edge)
 
         partition = np.zeros((forest.size, data.shape[0]))
         for cluster in range(forest.size):
-            cluster_ids, *_ = ZahnModel.get_cluster_info(data, forest, cluster)
+            cluster_ids, _ = ZahnModel.get_cluster_info(data, forest, cluster)
             partition[cluster, cluster_ids] = 1
 
         return partition
@@ -111,72 +101,81 @@ class ZahnModel(ClusteringModel):
     def _check_num_of_clusters(self, forest: SpanningForest) -> bool:
         return self.num_of_clusters == -1 or forest.size < self.num_of_clusters
 
-    def _check_first_criterion(self, data: ndarray, all_edges: list, edge_weight: float) -> bool:
-        criterion = self.cutting_cond * sum(map(lambda edge: edge.weight, all_edges)) / (data.shape[0] - 1)
-        return edge_weight >= criterion
+    def _apply_first_criterion(self, data: ndarr, all_edges: dict, cluster_edges: list) -> (bool, tuple):
+        most_heavy_edge = max(cluster_edges, key=lambda edge: all_edges[edge])
+        criterion = self.cutting_cond * np.sum(np.fromiter(all_edges.values(), dtype=np.float64)) / (data.shape[0] - 1)
+        edge_weight = all_edges[most_heavy_edge]
 
-    def _check_second_criterion(self, data: ndarray, all_edges: list, bad_cluster_edges: list, edges_weights: ndarray,
-                                workers: int) -> int:
+        return edge_weight >= criterion, most_heavy_edge
+
+    def _apply_second_criterion(self, data: ndarr, all_edges: dict, cluster_edges: list, workers: int) -> (bool, tuple):
+        edges_weights = itemgetter(*cluster_edges)(all_edges)
+
         sorted_indices = np.argsort(edges_weights)[::-1]
         for index in sorted_indices:
-            first_node = bad_cluster_edges[index].first_node
-            second_node = bad_cluster_edges[index].second_node
-            first_neighbours = self.__kdtree.query_ball_point(x=data[first_node], r=edges_weights[index],
-                                                              workers=workers)
-            first_edges = list(filter(
-                lambda edge: ((edge.first_node in first_neighbours) or (edge.second_node in first_neighbours)) and (
-                        edge.first_node != first_node and edge.second_node != second_node), all_edges))
-            second_neighbours = self.__kdtree.query_ball_point(x=data[second_node], r=edges_weights[index],
-                                                               workers=workers)
-            second_edges = list(filter(
-                lambda edge: ((edge.first_node in second_neighbours) or (edge.second_node in second_neighbours)) and (
-                        edge.first_node != first_node and edge.second_node != second_node), all_edges))
-            first_edges.extend(second_edges)
+            first_node, second_node = cluster_edges[index]
+            points = data[cluster_edges[index], :]
+            radius = edges_weights[index]
 
-            weight = edges_weights[index]
-            if len(first_edges) < 2:
+            neighbours = self.__kdtree.query_ball_point(x=points, r=radius, workers=workers, return_sorted=False)
+            first_node_neighbours = set(neighbours[0])
+            second_node_neighbours = set(neighbours[1])
+            neighbours_edges = list(filter(
+                lambda edge:
+                ((edge[0] in first_node_neighbours) or (edge[1] in first_node_neighbours))
+                or ((edge[0] in second_node_neighbours) or (edge[1] in second_node_neighbours))
+                and (edge[0] != first_node and edge[1] != second_node),
+                all_edges.keys()
+            ))
+            neighbours_edges_weights = itemgetter(*neighbours_edges)(all_edges)
+
+            if len(neighbours_edges) == 0:
                 continue
-            criterion = self.cutting_cond * sum(map(lambda edge: edge.weight, first_edges)) / (len(first_edges) - 1)
-            if weight >= criterion:
-                return index
 
-        return -1
+            criterion = self.cutting_cond * np.sum(neighbours_edges_weights) / (len(neighbours_edges))
+            current_edge_weight = edges_weights[index]
+            if current_edge_weight >= criterion:
+                return True, cluster_edges[index]
 
-    def _check_third_criterion(self, data: ndarray, cluster_edges: list) -> Edge or None:
-        bad_edge_index = None
+        return False, None
 
-        temp_forest = SpanningForest(size=data.shape[0])
-        for cluster_edge in cluster_edges:
-            temp_forest.add_edge(cluster_edge.first_node, cluster_edge.second_node, cluster_edge.weight)
-
-        min_total_hv = math.inf
+    def _apply_third_criterion(self, data: ndarr, all_edges: dict, cluster_edges: list, forest: SpanningForest,
+                               pool: SharedMemoryPool) -> (bool, tuple):
+        futures = list()
         for edge_index, cluster_edge in enumerate(cluster_edges):
-            temp_forest.remove_edge(cluster_edge.first_node, cluster_edge.second_node)
+            first_node, second_node = cluster_edge
+            forest.remove_edge(first_node, second_node)
 
-            roots = temp_forest.get_roots()
+            roots = forest.get_roots()
 
-            left_root = temp_forest.find_root(cluster_edge.first_node)
-            left_cluster_ids, _, cluster_center = ZahnModel.get_cluster_info(data, temp_forest, roots.index(left_root))
-            left_hv = hyper_volume(data, self.weighting_exp, left_cluster_ids, cluster_center)
+            left_root = forest.find_root(first_node)
+            left_cluster_ids, cluster_center = self.get_cluster_info(data, forest, roots.index(left_root))
+            futures.append(pool.submit(ZahnModel.__fuzzy_hyper_volume_task, left_cluster_ids, cluster_center))
 
-            right_root = temp_forest.find_root(cluster_edge.second_node)
-            right_cluster_ids, _, cluster_center = self.get_cluster_info(data, temp_forest, roots.index(right_root))
-            right_hv = hyper_volume(data, self.weighting_exp, right_cluster_ids, cluster_center)
+            right_root = forest.find_root(second_node)
+            right_cluster_ids, cluster_center = self.get_cluster_info(data, forest, roots.index(right_root))
+            futures.append(pool.submit(ZahnModel.__fuzzy_hyper_volume_task, right_cluster_ids, cluster_center))
 
-            if not (left_hv is math.inf or right_hv is math.inf):
+            forest.add_edge(first_node, second_node, all_edges[(first_node, second_node)])
+        wait(futures, return_when=ALL_COMPLETED)
+
+        bad_edge_index = 0
+        min_total_hv = math.inf
+        for edge_index in range(len(cluster_edges)):
+            left_hv = futures[2 * edge_index].result()
+            right_hv = futures[2 * edge_index + 1].result()
+            if not (left_hv == math.inf or right_hv == math.inf):
                 total_hv = left_hv + right_hv
                 if total_hv <= min_total_hv:
                     bad_edge_index = edge_index
                     min_total_hv = total_hv
 
-            temp_forest.add_edge(cluster_edge.first_node, cluster_edge.second_node, cluster_edge.weight)
-
-        return cluster_edges[bad_edge_index] if min_total_hv > self.hv_condition and min_total_hv != math.inf \
-            else None
+        return min_total_hv > self.hv_condition and min_total_hv != math.inf, cluster_edges[bad_edge_index]
 
     @staticmethod
     @submittable
-    def __fuzzy_hyper_volume_task(cluster_ids: ndarray, cluster_center: ndarray) -> float:
+    def __fuzzy_hyper_volume_task(cluster_ids: ndarr, cluster_center: ndarr) -> float:
+        # noinspection PyShadowingNames
         import numpy as np
         from mst_clustering.math_utils import hyper_volume
 
@@ -200,7 +199,7 @@ class GathGevaModel(ClusteringModel):
         self.termination_tolerance = termination_tolerance
         self.weighting_exp = weighting_exponent
 
-    def __call__(self, data: ndarray, forest: SpanningForest, workers: int = 1, partition: ndarray = None) -> ndarray:
+    def __call__(self, data: ndarr, forest: SpanningForest, workers: int = 1, partition: ndarr = None) -> ndarr:
         assert partition is not None, "This clustering method requires a non None partition matrix."
 
         non_noise = ~np.all(partition == 0, axis=1)
@@ -228,8 +227,8 @@ class GathGevaModel(ClusteringModel):
 
         return partition
 
-    def _get_ln_distance_matrix(self, data: ndarray, partition: ndarray, non_noise_clusters: ndarray,
-                                workers: int) -> ndarray:
+    def _get_ln_distance_matrix(self, data: ndarr, partition: ndarr, non_noise_clusters: ndarr,
+                                workers: int) -> ndarr:
         shared_memory_dict = dict({
             "shared_data": RawArray(ctypes.c_double, data.flatten()),
             "shared_partition": RawArray(ctypes.c_double, partition.flatten()),
@@ -250,7 +249,8 @@ class GathGevaModel(ClusteringModel):
 
     @staticmethod
     @submittable
-    def __compute_distances_task(cluster: int) -> ndarray:
+    def __compute_distances_task(cluster: int) -> ndarr:
+        # noinspection PyShadowingNames
         import numpy as np
         from mst_clustering.math_utils import cluster_ln_distances
 

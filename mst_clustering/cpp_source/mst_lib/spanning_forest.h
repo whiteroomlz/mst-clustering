@@ -1,7 +1,9 @@
 #pragma once
 
+#include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
+#include <pybind11/stl_bind.h>
 
 #include <iostream>
 #include <memory>
@@ -25,24 +27,33 @@ public:
         Edge(int32_t first_node, int32_t second_node, double edge_weight)
             : first_node(first_node), second_node(second_node), edge_weight(edge_weight) {
         }
+
+        std::tuple<int32_t, int32_t> nodes() {
+            return {first_node, second_node};
+        }
     };
 
     explicit SpanningForest(const size_t size)
         : roots_(std::vector<int32_t>(size)),
           dsu_weights_(std::vector<size_t>(size, 1)),
           trees_count_(size) {
-        std::iota(roots_.begin(), roots_.end(), 0);
+        for (int node = 0; node < size; ++node) {
+            unique_roots_.insert(node);
+            roots_[node] = node;
+        }
     }
 
     size_t size() const;
 
     bool isSpanningTree() const;
 
-    int32_t findRoot(int32_t item);
+    int32_t findRoot(int32_t node);
 
-    void getRoots(py::list result);
+    void getRoots(std::vector<int32_t>& out_roots) const;
 
-    void getEdges(int32_t root, py::list result);
+    py::array_t<int32_t> getTreeInfo(int32_t root, std::vector<std::shared_ptr<Edge>>& out_edges);
+
+    py::array_t<int32_t> getTreeNodes(int32_t root);
 
     void addEdge(int32_t first_node, int32_t second_node, double edge_weight);
 
@@ -50,6 +61,8 @@ public:
 
 private:
     std::unordered_multimap<int32_t, std::shared_ptr<Edge>> edges_;
+
+    std::unordered_set<int32_t> unique_roots_;
 
     std::vector<int32_t> roots_;
 
@@ -60,6 +73,6 @@ private:
 private:
     void dsuUnite(int32_t first_node, int32_t second_node);
 
-    void getTreeItems(int32_t node, std::unordered_set<int32_t>* unique_nodes,
-                      std::unordered_set<std::shared_ptr<Edge>>* edges) const;
+    void traverseTree(int32_t node, std::unordered_set<int32_t>* unique_nodes,
+                      std::vector<std::shared_ptr<Edge>>* edges) const;
 };

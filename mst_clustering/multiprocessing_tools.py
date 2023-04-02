@@ -3,9 +3,9 @@ import base64
 import marshal
 import functools
 
-from typing import Union
 from multiprocessing.sharedctypes import RawArray, RawValue, Array, Value
 from concurrent.futures import ProcessPoolExecutor
+from typing import Union
 
 shared_memory: dict[str, Array or Value or RawArray or RawValue]
 
@@ -36,8 +36,6 @@ def submittable(function):
 
 
 class SharedMemoryPool(ProcessPoolExecutor):
-    functions = dict()
-
     def __init__(self, max_workers: int, shared_memory_dict: dict[str, Array or Value or RawArray or RawValue]):
         super().__init__(max_workers=max_workers, initializer=pool_init, initargs=(shared_memory_dict,))
 

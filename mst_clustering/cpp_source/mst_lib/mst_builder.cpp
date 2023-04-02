@@ -1,6 +1,5 @@
 #include "mst_builder.h"
 
-#include <algorithm>
 #include <cfloat>
 #include <functional>
 #include <thread>
@@ -8,10 +7,9 @@
 
 void initMstBuilder(py::module& m) {
     py::class_<MstBuilder> mst_builder(m, "MstBuilder");
-    mst_builder
-        .def(py::init<const py::list&>(), py::arg("points"))
+    mst_builder.def(py::init<const py::list&>(), py::arg("points"))
         .def("build", &MstBuilder::build, "Returns the minimal spanning tree",
-                    py::arg("threads_count"), py::arg("distance_measure"));
+             py::arg("threads_count"), py::arg("distance_measure"));
 
     py::enum_<MstBuilder::Measure>(mst_builder, "DistanceMeasure")
         .value("COSINE", MstBuilder::Measure::COSINE)

@@ -12,6 +12,10 @@ class Edge(object):
         self.second_node = spanning_forest_edge.second_node
         self.weight = spanning_forest_edge.edge_weight
 
+    @property
+    def nodes(self) -> tuple:
+        return self.first_node, self.second_node
+
 
 class SpanningForest(object):
     __spanning_forest: mst_lib.SpanningForest
@@ -39,21 +43,25 @@ class SpanningForest(object):
     def remove_edge(self, first_node: int, second_node: int) -> None:
         self.__spanning_forest.remove_edge(first_node, second_node)
 
-    def get_roots(self) -> list[int]:
-        roots = list()
+    def get_roots(self) -> list:
+        roots = mst_lib.Int32Vector()
         self.__spanning_forest.get_roots(roots)
-        return roots
+        return list(roots)
 
-    def get_edges(self, root) -> list[Edge]:
-        edges = list()
-        self.__spanning_forest.get_edges(root, edges)
-        return list(map(lambda cpp_edge: Edge(cpp_edge), edges))
+    def get_tree_info(self, root) -> (np.ndarray, mst_lib.EdgeVector):
+        edges = mst_lib.EdgeVector()
+        nodes = self.__spanning_forest.get_tree_info(root, edges)
+        return nodes, edges
+
+    def get_tree_nodes(self, root) -> np.ndarray:
+        nodes = self.__spanning_forest.get_tree_nodes(root)
+        return nodes
 
     def save(self, filename):
         all_edges = list()
         for root in self.get_roots():
             all_edges.extend(
-                list(map(lambda edge: [edge.first_node, edge.second_node, edge.weight], self.get_edges(root))))
+                list(map(lambda edge: [edge.first_node, edge.second_node, edge.weight], self.get_tree_info(root)[1])))
         np.save(filename, np.array(all_edges))
 
     @staticmethod
