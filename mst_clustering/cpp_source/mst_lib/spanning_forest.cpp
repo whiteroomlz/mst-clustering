@@ -25,12 +25,15 @@ void initSpanningForest(py::module& m) {
              "Returns true if the forest contains only one root.")
         .def("find_root", &SpanningForest::findRoot, "Returns the root of the specified node.",
              py::arg("node"))
+        .def("get_tree_size", &SpanningForest::getTreeSize,
+             "Returns the number of nodes in the tree.", py::arg("root"))
         .def("get_roots", &SpanningForest::getRoots, "Returns all roots ids.")
-        .def("get_tree_info", &SpanningForest::getTreeInfo,
-             "Returns all nodes and edges of root with the specified id.", py::arg("root"),
-             py::arg("out_edges"))
+        .def("get_tree_info", &SpanningForest::getTreeInfo, py::return_value_policy::move,
+             "Returns all nodes and edges of tree with the specified root.", py::arg("root"))
         .def("get_tree_nodes", &SpanningForest::getTreeNodes,
-             "Returns all nodes and edges of root with the specified id.", py::arg("root"))
+             "Returns all nodes of tree with the specified root.", py::arg("root"))
+        .def("get_tree_edges", &SpanningForest::getTreeEdges, py::return_value_policy::move,
+             "Returns all edges of tree with the specified root.", py::arg("root"))
         .def("add_edge", &SpanningForest::addEdge,
              "Adds an edge between the two nodes with specified ids.", py::arg("first_node"),
              py::arg("second_node"), py::arg("edge_weight"))
@@ -54,25 +57,26 @@ bool SpanningForest::isSpanningTree() const {
 
 // O(a(N)), где N - число точек.
 int32_t SpanningForest::findRoot(int32_t node) {
-    if (node == roots_[node]) {
+    if (node == dsu_roots_[node]) {
         return node;
     }
-    return roots_[node] = findRoot(roots_[node]);
+    return dsu_roots_[node] = findRoot(dsu_roots_[node]);
+}
+
+size_t SpanningForest::getTreeSize(int32_t root) const {
+    return dsu_weights_[root];
 }
 
 // O(r), где r - число деревьев в лесу.
 void SpanningForest::getRoots(std::vector<int32_t>& out_roots) const {
-    out_roots = {unique_roots_.begin(), unique_roots_.end()};
+    out_roots = {trees_roots_.begin(), trees_roots_.end()};
 }
 
 // O(m), где m - число вершин в выбранном остовном дереве.
-py::array_t<int32_t> SpanningForest::getTreeInfo(int32_t root,
-                                                 std::vector<std::shared_ptr<Edge>>& out_edges) {
+py::list SpanningForest::getTreeInfo(int32_t root) {
     std::unordered_set<int32_t> unique_nodes;
     std::vector<std::shared_ptr<Edge>> edges;
     traverseTree(root, &unique_nodes, &edges);
-
-    out_edges = std::move(edges);
 
     auto nodes = py::array_t<int32_t>(static_cast<int64_t>(unique_nodes.size()));
     py::buffer_info buffer_info = nodes.request();
@@ -82,9 +86,14 @@ py::array_t<int32_t> SpanningForest::getTreeInfo(int32_t root,
         buffer[node_index] = *node_ptr;
     }
 
-    return nodes;
+    py::list result;
+    result.append(nodes);
+    result.append(edges);
+
+    return result;
 }
 
+// O(m), где m - число вершин в выбранном остовном дереве.
 py::array_t<int32_t> SpanningForest::getTreeNodes(int32_t root) {
     std::unordered_set<int32_t> unique_nodes;
     traverseTree(root, &unique_nodes, nullptr);
@@ -98,6 +107,15 @@ py::array_t<int32_t> SpanningForest::getTreeNodes(int32_t root) {
     }
 
     return nodes;
+}
+
+// O(m), где m - число вершин в выбранном остовном дереве.
+std::vector<std::shared_ptr<SpanningForest::Edge>> SpanningForest::getTreeEdges(int32_t root) {
+    std::unordered_set<int32_t> unique_nodes;
+    std::vector<std::shared_ptr<Edge>> edges;
+    traverseTree(root, &unique_nodes, &edges);
+
+    return edges;
 }
 
 // O(a(N)), где N - число точек.
@@ -145,8 +163,8 @@ void SpanningForest::removeEdge(int32_t first_node, int32_t second_node) {
     dsu_weights_[findRoot(first_node)] -= second_tree_nodes.size();
 
     for (const int32_t node : second_tree_nodes) {
-        unique_roots_.insert(node);
-        roots_[node] = node;
+        trees_roots_.insert(node);
+        dsu_roots_[node] = node;
         dsu_weights_[node] = 1;
     }
 
@@ -173,8 +191,8 @@ void SpanningForest::dsuUnite(int32_t first_node, int32_t second_node) {
         std::swap(first_parent, second_parent);
     }
 
-    unique_roots_.erase(second_parent);
-    roots_[second_parent] = first_parent;
+    trees_roots_.erase(second_parent);
+    dsu_roots_[second_parent] = first_parent;
     dsu_weights_[first_parent] += dsu_weights_[second_parent];
 }
 

@@ -38,7 +38,7 @@ class Pipeline:
         elif self.spanning_forest is None:
             self.spanning_forest = MstBuilder(data.tolist()).build(workers_count, distance_measure)
             assert self.spanning_forest.is_spanning_tree
-            all_edges = self.spanning_forest.get_tree_info(0)[1]
+            all_edges = self.spanning_forest.get_tree_edges(0)
             assert len(all_edges) == data.shape[0] - 1
 
         partition = initial_partition

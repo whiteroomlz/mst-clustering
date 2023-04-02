@@ -34,12 +34,12 @@ public:
     };
 
     explicit SpanningForest(const size_t size)
-        : roots_(std::vector<int32_t>(size)),
+        : dsu_roots_(std::vector<int32_t>(size)),
           dsu_weights_(std::vector<size_t>(size, 1)),
           trees_count_(size) {
         for (int node = 0; node < size; ++node) {
-            unique_roots_.insert(node);
-            roots_[node] = node;
+            trees_roots_.insert(node);
+            dsu_roots_[node] = node;
         }
     }
 
@@ -49,11 +49,15 @@ public:
 
     int32_t findRoot(int32_t node);
 
+    size_t getTreeSize(int32_t root) const;
+
     void getRoots(std::vector<int32_t>& out_roots) const;
 
-    py::array_t<int32_t> getTreeInfo(int32_t root, std::vector<std::shared_ptr<Edge>>& out_edges);
+    py::list getTreeInfo(int32_t root);
 
     py::array_t<int32_t> getTreeNodes(int32_t root);
+
+    std::vector<std::shared_ptr<Edge>> getTreeEdges(int32_t root);
 
     void addEdge(int32_t first_node, int32_t second_node, double edge_weight);
 
@@ -62,9 +66,9 @@ public:
 private:
     std::unordered_multimap<int32_t, std::shared_ptr<Edge>> edges_;
 
-    std::unordered_set<int32_t> unique_roots_;
+    std::unordered_set<int32_t> trees_roots_;
 
-    std::vector<int32_t> roots_;
+    std::vector<int32_t> dsu_roots_;
 
     std::vector<size_t> dsu_weights_;
 

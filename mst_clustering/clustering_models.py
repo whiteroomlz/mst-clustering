@@ -22,7 +22,7 @@ class ClusteringModel(ABC):
     @staticmethod
     def get_cluster_info(data: ndarr, forest: SpanningForest, cluster_idx: int) -> (ndarr, ndarr):
         root = forest.get_roots()[cluster_idx]
-        cluster_ids, _ = forest.get_tree_info(root)
+        cluster_ids = forest.get_tree_nodes(root)
 
         if len(cluster_ids) == 1:
             cluster_center = data[cluster_ids[0]]
@@ -56,7 +56,7 @@ class ZahnModel(ClusteringModel):
         self.__kdtree = None
 
     def __call__(self, data: ndarr, forest: SpanningForest, workers: int = 1, partition: ndarr = None) -> ndarr:
-        all_edges = dict(map(lambda edge: (edge.nodes(), edge.weight), forest.get_tree_info(*forest.get_roots())[1]))
+        all_edges = dict(map(lambda edge: (edge.nodes(), edge.weight), forest.get_tree_edges(*forest.get_roots())))
 
         shared_memory_dict = dict({
             "shared_data": RawArray(ctypes.c_double, data.flatten()),
@@ -73,8 +73,8 @@ class ZahnModel(ClusteringModel):
                 volumes = np.fromiter(map(lambda future: future.result(), futures), dtype=np.float64)
                 volumes_without_noise = np.where(volumes == math.inf, -1, volumes)
                 bad_cluster = np.argmax(volumes_without_noise)
-                cluster_edges = list(
-                    map(lambda edge: edge.nodes(), forest.get_tree_info(forest.get_roots()[bad_cluster])[1]))
+                cluster_ids, cluster_edges = forest.get_tree_info(forest.get_roots()[bad_cluster])
+                cluster_edges = list(map(lambda edge: edge.nodes(), cluster_edges))
 
                 bad_edge_found = False
                 if self.use_first_criterion:
@@ -84,7 +84,9 @@ class ZahnModel(ClusteringModel):
                         self.__kdtree = KDTree(data)
                     bad_edge_found, bad_edge = self._apply_second_criterion(data, all_edges, cluster_edges, workers)
                 if not bad_edge_found and self.use_third_criterion:
-                    bad_edge_found, bad_edge = self._apply_third_criterion(data, all_edges, cluster_edges, forest, pool)
+                    bad_edge_found, bad_edge = self._apply_third_criterion(
+                        data, all_edges, cluster_ids, cluster_edges, forest, pool
+                    )
                 if not bad_edge_found:
                     break
 
@@ -93,7 +95,8 @@ class ZahnModel(ClusteringModel):
 
         partition = np.zeros((forest.size, data.shape[0]))
         for cluster in range(forest.size):
-            cluster_ids, _ = ZahnModel.get_cluster_info(data, forest, cluster)
+            root = forest.get_roots()[cluster]
+            cluster_ids = forest.get_tree_nodes(root)
             partition[cluster, cluster_ids] = 1
 
         return partition
@@ -139,22 +142,30 @@ class ZahnModel(ClusteringModel):
 
         return False, None
 
-    def _apply_third_criterion(self, data: ndarr, all_edges: dict, cluster_edges: list, forest: SpanningForest,
-                               pool: SharedMemoryPool) -> (bool, tuple):
+    def _apply_third_criterion(self, data: ndarr, all_edges: dict, cluster_ids: np.ndarray, cluster_edges: list,
+                               forest: SpanningForest, pool: SharedMemoryPool) -> (bool, tuple):
         futures = list()
+        cluster_center = np.mean(data[cluster_ids], axis=0)
         for edge_index, cluster_edge in enumerate(cluster_edges):
             first_node, second_node = cluster_edge
             forest.remove_edge(first_node, second_node)
 
             roots = forest.get_roots()
-
             left_root = forest.find_root(first_node)
-            left_cluster_ids, cluster_center = self.get_cluster_info(data, forest, roots.index(left_root))
+            right_root = forest.find_root(second_node)
+
+            left_tree_size = forest.get_tree_size(left_root)
+            right_tree_size = forest.get_tree_size(right_root)
+            if left_tree_size > right_tree_size:
+                left_root, right_root = right_root, left_root
+                left_tree_size, right_tree_size = right_tree_size, left_tree_size
+
+            left_cluster_ids, left_center = self.get_cluster_info(data, forest, roots.index(left_root))
             futures.append(pool.submit(ZahnModel.__fuzzy_hyper_volume_task, left_cluster_ids, cluster_center))
 
-            right_root = forest.find_root(second_node)
-            right_cluster_ids, cluster_center = self.get_cluster_info(data, forest, roots.index(right_root))
-            futures.append(pool.submit(ZahnModel.__fuzzy_hyper_volume_task, right_cluster_ids, cluster_center))
+            right_cluster_ids = np.setdiff1d(cluster_ids, left_cluster_ids, assume_unique=True)
+            right_center = (cluster_center * cluster_ids.size - left_center * left_tree_size) / right_tree_size
+            futures.append(pool.submit(ZahnModel.__fuzzy_hyper_volume_task, right_cluster_ids, right_center))
 
             forest.add_edge(first_node, second_node, all_edges[(first_node, second_node)])
         wait(futures, return_when=ALL_COMPLETED)

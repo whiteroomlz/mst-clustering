@@ -37,6 +37,9 @@ class SpanningForest(object):
     def find_root(self, node) -> int:
         return self.__spanning_forest.find_root(node)
 
+    def get_tree_size(self, root) -> int:
+        return self.__spanning_forest.get_tree_size(root)
+
     def add_edge(self, first_node: int, second_node: int, weight: float) -> None:
         self.__spanning_forest.add_edge(first_node, second_node, weight)
 
@@ -49,13 +52,16 @@ class SpanningForest(object):
         return list(roots)
 
     def get_tree_info(self, root) -> (np.ndarray, mst_lib.EdgeVector):
-        edges = mst_lib.EdgeVector()
-        nodes = self.__spanning_forest.get_tree_info(root, edges)
+        nodes, edges = self.__spanning_forest.get_tree_info(root)
         return nodes, edges
 
     def get_tree_nodes(self, root) -> np.ndarray:
         nodes = self.__spanning_forest.get_tree_nodes(root)
         return nodes
+
+    def get_tree_edges(self, root) -> mst_lib.EdgeVector:
+        edges = self.__spanning_forest.get_tree_edges(root)
+        return edges
 
     def save(self, filename):
         all_edges = list()
