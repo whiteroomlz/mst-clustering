@@ -56,7 +56,7 @@ class Pipeline:
 
             if save_steps:
                 self.spanning_forest.save(f"{step_title}-spanning-forest#{step}")
-                np.save(partition, f"{step_title}-partition#{step}")
+                np.save(f"{step_title}-partition#{step}", partition)
 
         return self
 
