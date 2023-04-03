@@ -63,6 +63,13 @@ class SpanningForest(object):
         edges = self.__spanning_forest.get_tree_edges(root)
         return edges
 
+    def get_all_edges(self) -> dict:
+        all_edges = dict()
+        for root in self.get_roots():
+            for edge in self.get_tree_edges(root):
+                all_edges[edge.nodes()] = edge.weight
+        return all_edges
+
     def save(self, filename):
         all_edges = list()
         for root in self.get_roots():

@@ -56,7 +56,7 @@ class ZahnModel(ClusteringModel):
         self.__kdtree = None
 
     def __call__(self, data: ndarr, forest: SpanningForest, workers: int = 1, partition: ndarr = None) -> ndarr:
-        all_edges = dict(map(lambda edge: (edge.nodes(), edge.weight), forest.get_tree_edges(*forest.get_roots())))
+        all_edges = forest.get_all_edges()
 
         shared_memory_dict = dict({
             "shared_data": RawArray(ctypes.c_double, data.flatten()),
@@ -113,29 +113,23 @@ class ZahnModel(ClusteringModel):
 
     def _apply_second_criterion(self, data: ndarr, all_edges: dict, cluster_edges: list, workers: int) -> (bool, tuple):
         edges_weights = itemgetter(*cluster_edges)(all_edges)
-
+        all_edges_nodes_pairs = np.array(list(all_edges.keys())).T
         sorted_indices = np.argsort(edges_weights)[::-1]
         for index in sorted_indices:
-            first_node, second_node = cluster_edges[index]
             points = data[cluster_edges[index], :]
             radius = edges_weights[index]
 
             neighbours = self.__kdtree.query_ball_point(x=points, r=radius, workers=workers, return_sorted=False)
-            first_node_neighbours = set(neighbours[0])
-            second_node_neighbours = set(neighbours[1])
-            neighbours_edges = list(filter(
-                lambda edge:
-                ((edge[0] in first_node_neighbours) or (edge[1] in first_node_neighbours))
-                or ((edge[0] in second_node_neighbours) or (edge[1] in second_node_neighbours))
-                and (edge[0] != first_node and edge[1] != second_node),
-                all_edges.keys()
-            ))
-            neighbours_edges_weights = itemgetter(*neighbours_edges)(all_edges)
 
-            if len(neighbours_edges) == 0:
+            _, neighbours1_indices, _ = np.intersect1d(all_edges_nodes_pairs[0], neighbours[0], return_indices=True)
+            filtered1 = all_edges_nodes_pairs[:, neighbours1_indices]
+            _, neighbours2_indices, _ = np.intersect1d(filtered1[1], neighbours[1], return_indices=True)
+            filtered2 = filtered1[:, neighbours2_indices]
+            if filtered2.shape[1] <= 1:
                 continue
+            neighbours_edges_weights = itemgetter(*zip(*filtered2))(all_edges)
 
-            criterion = self.cutting_cond * np.sum(neighbours_edges_weights) / (len(neighbours_edges))
+            criterion = self.cutting_cond * sum(neighbours_edges_weights) / (len(neighbours_edges_weights))
             current_edge_weight = edges_weights[index]
             if current_edge_weight >= criterion:
                 return True, cluster_edges[index]

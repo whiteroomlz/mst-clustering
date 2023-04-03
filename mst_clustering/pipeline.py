@@ -47,14 +47,16 @@ class Pipeline:
         for step in range(n_steps if n_steps is not None else len(self.clustering_models)):
             try:
                 model = next(self.__models_iterator)
-                if save_steps:
-                    self.spanning_forest.save(f"{step_title}#{step}")
             except StopIteration:
                 break
 
             partition = model(data=self.__data, forest=self.spanning_forest, workers=workers_count, partition=partition)
             partition = self.__clean_noise(partition)
             self.partition = partition
+
+            if save_steps:
+                self.spanning_forest.save(f"{step_title}-spanning-forest#{step}")
+                np.save(partition, f"{step_title}-partition#{step}")
 
         return self
 
