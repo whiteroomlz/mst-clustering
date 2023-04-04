@@ -12,10 +12,10 @@ void initSpanningForest(py::module& m) {
         .def_readonly("weight", &SpanningForest::Edge::edge_weight)
         .def("nodes", &SpanningForest::Edge::nodes)
         .def("__repr__", [](const SpanningForest::Edge& edge) {
-            return (std::stringstream("")
-                    << "SpanningForest::Edge - (" << edge.first_node << ";" << edge.second_node
-                    << ") with weight " << edge.edge_weight)
-                .str();
+            std::stringstream representation;
+            representation << "SpanningForest::Edge - (" << edge.first_node << ";"
+                           << edge.second_node << ") with weight " << edge.edge_weight;
+            return representation.str();
         });
 
     py::class_<SpanningForest>(m, "SpanningForest")
