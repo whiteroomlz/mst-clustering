@@ -1,8 +1,6 @@
 import pybind11
 from setuptools import setup, Extension
 
-cpp_args = ['-std=c++2a']
-
 ext_modules = [
     Extension(
         'mst_lib',
@@ -14,7 +12,6 @@ ext_modules = [
         ],
         include_dirs=[pybind11.get_include()],
         language='c++',
-        extra_compile_args=cpp_args,
     ),
 ]
 
