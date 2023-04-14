@@ -33,7 +33,7 @@ setup(
         "numba",
         "scikit-learn",
         "scipy",
-        "sklearn",
+        "scikit-learn",
         "threadpoolctl",
         "wincertstore",
         "pybind11",
