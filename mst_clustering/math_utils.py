@@ -15,7 +15,7 @@ def fuzzy_covariance_matrix(data: ndarr, weighting_exp: float, partition: ndarr,
     for index in np.arange(diff_matrix.shape[0]):
         diff_vector = np.expand_dims(diff_matrix[index, :], 0).T
         partition_ratio = partition[index] ** weighting_exp
-        covariance_matrix += partition_ratio * diff_vector @ diff_vector.T
+        covariance_matrix += partition_ratio * (diff_vector @ diff_vector.T)
         partition_sum += partition_ratio
     covariance_matrix /= partition_sum
 

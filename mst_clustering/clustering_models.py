@@ -64,6 +64,8 @@ class ZahnModel(ClusteringModel):
             "shared_weighting_exponent": RawValue(ctypes.c_double, self.weighting_exp)
         })
 
+        break_flag = False
+        previous_bad_cluster = None
         with SharedMemoryPool(max_workers=workers, shared_memory_dict=shared_memory_dict) as pool:
             while self._check_num_of_clusters(forest):
                 info = map(lambda c: ZahnModel.get_cluster_info(data, forest, c), range(forest.size))
@@ -73,6 +75,12 @@ class ZahnModel(ClusteringModel):
                 volumes = np.fromiter(map(lambda future: future.result(), futures), dtype=np.float64)
                 volumes_without_noise = np.where(volumes == math.inf, -1, volumes)
                 bad_cluster = np.argmax(volumes_without_noise)
+
+                if break_flag and previous_bad_cluster == bad_cluster:
+                    break
+                else:
+                    break_flag = False
+
                 cluster_ids, cluster_edges = forest.get_tree_info(forest.get_roots()[bad_cluster])
                 cluster_edges = list(map(lambda edge: edge.nodes(), cluster_edges))
 
@@ -88,7 +96,9 @@ class ZahnModel(ClusteringModel):
                         data, all_edges, cluster_ids, cluster_edges, forest, pool
                     )
                 if not bad_edge_found:
-                    break
+                    break_flag = True
+                    previous_bad_cluster = bad_cluster
+                    continue
 
                 forest.remove_edge(*bad_edge)
                 all_edges.pop(bad_edge)
