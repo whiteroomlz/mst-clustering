@@ -66,7 +66,7 @@ public:
 private:
     std::unordered_multimap<int32_t, std::shared_ptr<Edge>> edges_;
 
-    std::unordered_set<int32_t> trees_roots_;
+    std::set<int32_t> trees_roots_;
 
     std::vector<int32_t> dsu_roots_;
 
