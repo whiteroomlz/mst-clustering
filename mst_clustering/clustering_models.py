@@ -72,9 +72,9 @@ class ZahnModel(ClusteringModel):
                 wait(futures, return_when=ALL_COMPLETED)
 
                 volumes = np.fromiter(map(lambda future: future.result(), futures), dtype=np.float64)
-                volumes[list(finished_clusters)] = math.inf
-                volumes = volumes[volumes != math.inf]
-                bad_cluster = np.random.choice(np.arange(volumes.size))
+                volumes_without_noise = np.where(volumes == math.inf, -1, volumes)
+                volumes_without_noise[list(finished_clusters)] = -1
+                bad_cluster = np.argmax(volumes_without_noise)
 
                 cluster_ids, cluster_edges = forest.get_tree_info(forest.get_roots()[bad_cluster])
                 cluster_edges = list(map(lambda edge: edge.nodes(), cluster_edges))
