@@ -28,18 +28,17 @@ class Pipeline:
 
     def fit(self, data: np.ndarray = None, distance_measure: DistanceMeasure = DistanceMeasure.EUCLIDEAN,
             workers_count: int = 1, initial_partition: np.ndarray = None, spanning_forest: SpanningForest = None,
-            n_steps: int = None, use_normalization: bool = True, save_steps: bool = False, step_title: str = "step"):
+            n_steps: int = None, use_normalization: bool = False, save_steps: bool = False, step_title: str = "step"):
         if data is not None:
             self.__data = normalize(data.copy()) if use_normalization else data.copy()
-            self.__data = np.unique(data, axis=0)
 
         if spanning_forest is not None:
             self.spanning_forest = spanning_forest
         elif self.spanning_forest is None:
-            self.spanning_forest = MstBuilder(data.tolist()).build(workers_count, distance_measure)
+            self.spanning_forest = MstBuilder(self.__data.tolist()).build(workers_count, distance_measure)
             assert self.spanning_forest.is_spanning_tree
             all_edges = self.spanning_forest.get_tree_edges(0)
-            assert len(all_edges) == data.shape[0] - 1
+            assert len(all_edges) == self.__data.shape[0] - 1
 
         partition = initial_partition
         self.noise = np.zeros(self.__data.shape[0])

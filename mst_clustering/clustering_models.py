@@ -67,7 +67,7 @@ class ZahnModel(ClusteringModel):
         finished_clusters = set()
         with SharedMemoryPool(max_workers=workers, shared_memory_dict=shared_memory_dict) as pool:
             while self._check_num_of_clusters(forest):
-                info = map(lambda c: ZahnModel.get_cluster_info(data, forest, c), range(forest.size))
+                info = list(map(lambda c: ZahnModel.get_cluster_info(data, forest, c), range(forest.size)))
                 futures = list(pool.submit(ZahnModel.__fuzzy_hyper_volume_task, ids, center) for ids, center in info)
                 wait(futures, return_when=ALL_COMPLETED)
 
