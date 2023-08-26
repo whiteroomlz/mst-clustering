@@ -36,6 +36,7 @@ class ZahnModel(ClusteringModel):
     cutting_cond: float
     hv_condition: float
     weighting_exp: float
+    min_points_in_cluster: int
     num_of_clusters: int
     use_first_criterion: bool
     use_third_criterion: bool
@@ -43,11 +44,21 @@ class ZahnModel(ClusteringModel):
 
     __kdtree: KDTree or None
 
-    def __init__(self, cutting_condition=2.5, weighting_exponent=2, hv_condition=1e-4, max_num_of_clusters: int = -1,
-                 use_first_criterion: bool = True, use_second_criterion: bool = True, use_third_criterion: bool = True):
+    def __init__(
+            self,
+            cutting_condition=2.5,
+            weighting_exponent=2,
+            hv_condition=1e-4,
+            min_points_in_cluster: int = 1,
+            max_num_of_clusters: int = -1,
+            use_first_criterion: bool = True,
+            use_second_criterion: bool = True,
+            use_third_criterion: bool = True
+    ):
         self.cutting_cond = cutting_condition
         self.weighting_exp = weighting_exponent
         self.hv_condition = hv_condition
+        self.min_points_in_cluster = min_points_in_cluster
         self.num_of_clusters = max_num_of_clusters
         self.use_first_criterion = use_first_criterion
         self.use_second_criterion = use_second_criterion
@@ -67,8 +78,17 @@ class ZahnModel(ClusteringModel):
         finished_clusters = set()
         with SharedMemoryPool(max_workers=workers, shared_memory_dict=shared_memory_dict) as pool:
             while self._check_num_of_clusters(forest):
-                info = list(map(lambda c: ZahnModel.get_cluster_info(data, forest, c), range(forest.size)))
-                futures = list(pool.submit(ZahnModel.__fuzzy_hyper_volume_task, ids, center) for ids, center in info)
+                info = map(lambda c: ZahnModel.get_cluster_info(data, forest, c), range(forest.size))
+                unfinished_clusters = list(filter(
+                    lambda cluster_info: cluster_info[0].size >= self.min_points_in_cluster, info
+                ))
+
+                if len(unfinished_clusters) == 0:
+                    break
+
+                futures = list(pool.submit(
+                    ZahnModel.__fuzzy_hyper_volume_task, ids, center
+                ) for ids, center in unfinished_clusters)
                 wait(futures, return_when=ALL_COMPLETED)
 
                 volumes = np.fromiter(map(lambda future: future.result(), futures), dtype=np.float64)
@@ -121,6 +141,7 @@ class ZahnModel(ClusteringModel):
 
     def _apply_second_criterion(self, data: ndarr, all_edges: dict, cluster_edges: list, workers: int) -> (bool, tuple):
         edges_weights = itemgetter(*cluster_edges)(all_edges)
+        edges_weights = [edges_weights] if isinstance(edges_weights, (int, float)) else list(edges_weights)
         all_edges_nodes_pairs = np.array(list(all_edges.keys())).T
         sorted_indices = np.argsort(edges_weights)[::-1]
         for index in sorted_indices:

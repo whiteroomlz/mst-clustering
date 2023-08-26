@@ -1,28 +1,21 @@
 import multiprocessing
 
-import pandas as pd
-
 from mst_clustering.clustering_models import ZahnModel
-from sklearn.preprocessing import StandardScaler
 from sklearn.datasets import make_blobs
 from mst_clustering import Pipeline
 
 import matplotlib.pyplot as plt
-import seaborn as sns
 import matplotlib as mpl
+import seaborn as sns
 
 mpl.use('TkAgg')  # !IMPORTANT
-
-scaler = StandardScaler()
 
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()
 
     # X, y = make_blobs(n_samples=1000, n_features=10, centers=7)
-    X, y = list(make_blobs(n_samples=1000, centers=[(-5,-10), (-5,-5), (7,12), (7,5), (12,-12)],
-                         random_state=8))
-    # X = scaler.fit_transform(X)
+    X, y = list(make_blobs(n_samples=2, centers=[(-5, -10)], random_state=8))
 
     clustering = Pipeline(clustering_models=[
         ZahnModel(2.5, 1.5, 1e-2, max_num_of_clusters=50, use_third_criterion=False),
